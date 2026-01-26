@@ -47,6 +47,7 @@ use virt::x86::DebugState;
 use vm_topology::processor::aarch64::Aarch64VpInfo;
 use vmcore::reference_time::ReferenceTimeSource;
 use vmcore::vmtime::VmTimeAccess;
+use aarch64defs::Vendor;
 
 // linux/arch/arm64/include/asm/sysreg.h
 
@@ -656,6 +657,7 @@ impl virt::ProtoPartition for KvmProtoPartition<'_> {
                 pfr0 & 0xf == 2
             };
             PartitionCapabilities {
+                vendor: Vendor([0; 12]),
                 supports_aarch32_el0,
             }
         };

@@ -76,6 +76,7 @@ pub enum IsolationType {
     Snp,
     /// Trust domain extensions (Intel TDX) - hardware based isolation.
     Tdx,
+    Cca,
 }
 
 impl IsolationType {
@@ -86,7 +87,7 @@ impl IsolationType {
 
     /// Returns whether the isolation type is hardware-backed.
     pub fn is_hardware_isolated(&self) -> bool {
-        matches!(self, Self::Snp | Self::Tdx)
+        matches!(self, Self::Snp | Self::Tdx | Self::Cca)
     }
 }
 
@@ -103,6 +104,7 @@ impl IsolationType {
             hvdef::HvPartitionIsolationType::VBS => Ok(IsolationType::Vbs),
             hvdef::HvPartitionIsolationType::SNP => Ok(IsolationType::Snp),
             hvdef::HvPartitionIsolationType::TDX => Ok(IsolationType::Tdx),
+            hvdef::HvPartitionIsolationType::CCA => Ok(IsolationType::Cca),
             _ => Err(UnexpectedIsolationType),
         }
     }
@@ -113,6 +115,7 @@ impl IsolationType {
             IsolationType::Vbs => hvdef::HvPartitionIsolationType::VBS,
             IsolationType::Snp => hvdef::HvPartitionIsolationType::SNP,
             IsolationType::Tdx => hvdef::HvPartitionIsolationType::TDX,
+            IsolationType::Cca => hvdef::HvPartitionIsolationType::CCA,
         }
     }
 }

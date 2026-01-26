@@ -12,6 +12,9 @@ tmk_macros.workspace = true
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86defs.workspace = true
+minimal_rt.workspace = true
+tmk_protocol.workspace = true
+arrayvec.workspace = true
 
 [build-dependencies]
 minimal_rt_build.workspace = true
