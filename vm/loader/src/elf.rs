@@ -240,14 +240,15 @@ where
         )
     };
 
-    // Drop the reader to release the borrow on kernel_image.
-    drop(reader);
+    // During the second pass, read in each section pointed to by the program headers,
+    // and import into the guest memory.
+    for phdr in phdrs {
+        if phdr.p_type.get(LE) != elf::PT_LOAD {
+            continue;
+        }
 
-    // During the second pass, import each segment.
-    let mut buf = ChunkBuf::new();
-    for seg in &segments {
-        let mem_offset = seg
-            .p_paddr
+        let p_paddr = phdr.p_paddr.get(LE);
+        let mem_offset = p_paddr
             .checked_add(load_offset)
             .ok_or(Error::LoadOffsetOverflow {
                 load_offset,
