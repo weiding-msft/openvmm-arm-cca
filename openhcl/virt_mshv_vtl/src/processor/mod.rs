@@ -828,10 +828,10 @@ impl<'p, T: Backing> Processor for UhProcessor<'p, T> {
             // Quiesce RCU before running the VP to avoid having to synchronize with
             // this CPU during memory protection updates.
             minircu::global().quiesce();
-
+            println!("Before T::run_vp");
             T::run_vp(self, dev, &mut stop).await?;
             self.kernel_returns += 1;
-
+            println!("After T::run_vp");
             let addr = self.partition.addresses.shared_virtual_address_start;
             println!("Reading from virtual addr after plane exit: {}", addr);
             #[allow(unsafe_code)]
