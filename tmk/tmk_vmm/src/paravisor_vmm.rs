@@ -59,8 +59,8 @@ impl RunContext<'_> {
                 .expect("failed to set CCA memory permissions");
 
                 p.cca_set_mem_perm(
-                    self.state.shared_address_start,
-                    self.state.shared_address_start + 0x200000,
+                    self.state.addresses.unwrap().shared_address_start,
+                    self.state.addresses.unwrap().shared_address_start + 0x200000,
                 )
                 .expect("failed to set CCA memory permissions");
             }

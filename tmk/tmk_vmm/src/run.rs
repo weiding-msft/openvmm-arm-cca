@@ -102,7 +102,7 @@ impl CommonState {
 
         
         let mut memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
-        let mut shared_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
+        let mut shared_memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         let mut mmemory = None;
         let mut offset_memory  = None;
 
