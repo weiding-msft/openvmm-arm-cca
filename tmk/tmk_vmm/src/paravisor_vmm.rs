@@ -9,6 +9,7 @@ use crate::run::RunContext;
 use crate::run::RunnerBuilder;
 use crate::run::TestResult;
 use guestmem::GuestMemory;
+use hcl::ioctl::IsolationType;
 use std::sync::Arc;
 use virt::Partition;
 use virt_mshv_vtl::UhLateParams;
@@ -45,24 +46,25 @@ impl RunContext<'_> {
 
         let p = virt_mshv_vtl::UhProtoPartition::new(params, |_| self.state.driver.clone())?;
 
-        let vtom = if cfg!(guest_arch = "aarch64") {
-            Some((1 as u64) << (p.realm_config().ipa_width() - 1))
-        } else {
-            None
-        };
+        let mut vtom = None;
 
-        if cfg!(guest_arch = "aarch64") {
-            p.cca_set_mem_perm(
-                self.state.mmemory.as_ref().unwrap().startpa,
-                self.state.mmemory.as_ref().unwrap().endpa,
-            )
-            .expect("failed to set CCA memory permissions");
+        match isolation {
+            virt::IsolationType::Cca => {
+                vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
 
-            p.cca_set_mem_perm(
-                self.state.shared_address_start,
-                self.state.shared_address_start + 0x200000,
-            )
-            .expect("failed to set CCA memory permissions");
+                p.cca_set_mem_perm(
+                    self.state.mmemory.as_ref().unwrap().startpa,
+                    self.state.mmemory.as_ref().unwrap().endpa,
+                )
+                .expect("failed to set CCA memory permissions");
+
+                p.cca_set_mem_perm(
+                    self.state.shared_address_start,
+                    self.state.shared_address_start + 0x200000,
+                )
+                .expect("failed to set CCA memory permissions");
+            }
+            virt::IsolationType::Snp | virt::IsolationType::Tdx | virt::IsolationType::Vbs | virt::IsolationType::None => {}
         }
 
         let m = underhill_mem::init(&underhill_mem::Init {
