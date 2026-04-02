@@ -1664,7 +1664,6 @@ pub struct UhProtoPartition<'a> {
     cpuid: virt::CpuidLeafSet,
     #[cfg(guest_arch = "aarch64")]
     realm_config: RsiRealmConfig,
-    #[cfg(guest_arch = "aarch64")]
     addresses: Addresses,
 }
 
@@ -1806,7 +1805,6 @@ impl<'a> UhProtoPartition<'a> {
     pub async fn build(
         self,
         late_params: UhLateParams<'_>,
-        #[cfg(guest_arch = "aarch64")]
         addrs: Addresses,
         // #[cfg(guest_arch = "aarch64")]
         // shared_address_start: u64,
@@ -1818,7 +1816,7 @@ impl<'a> UhProtoPartition<'a> {
         // shared_virtual_address_start_command: u64,
         
     ) -> Result<(UhPartition, Vec<UhProcessorBox>), Error> {
-        self.addresses = addrs;
+        
         let Self {
             mut hcl,
             params,
@@ -1829,7 +1827,6 @@ impl<'a> UhProtoPartition<'a> {
             cpuid,
             #[cfg_attr(guest_arch = "aarch64", allow(unused_variables))]
             realm_config,
-            #[cfg(guest_arch = "aarch64")]
             addresses,
         } = self;
         let isolation = params.isolation;
@@ -2068,7 +2065,7 @@ impl<'a> UhProtoPartition<'a> {
             device_vector_table: RwLock::new(IrrBitmap::new(Default::default())),
             intercept_debug_exceptions: params.intercept_debug_exceptions,
             vmbus_relay: late_params.vmbus_relay,
-            addresses,
+            addresses: addrs,
         });
 
         if cfg!(guest_arch = "x86_64") {
