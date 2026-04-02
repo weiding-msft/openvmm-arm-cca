@@ -1785,7 +1785,7 @@ impl<'a> UhProtoPartition<'a> {
             #[cfg(guest_arch = "aarch64")]
             realm_config,
             #[cfg(guest_arch = "aarch64")]
-            addresses,
+            addresses: Addresses::default(),
         })
     }
 

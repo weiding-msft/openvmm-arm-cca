@@ -401,7 +401,7 @@ impl From<mshv_realm_config> for RsiRealmConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Inspect)]
+#[derive(Debug, Clone, Copy, Inspect, Default)]
 pub struct Addresses {
     pub shared_address_start: u64,
     pub shared_virtual_address_start: u64,
