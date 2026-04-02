@@ -832,7 +832,7 @@ impl<'p, T: Backing> Processor for UhProcessor<'p, T> {
             T::run_vp(self, dev, &mut stop).await?;
             self.kernel_returns += 1;
 
-            let addr = self.partition.shared_virtual_addr_start;
+            let addr = self.partition.addresses.shared_virtual_address_start;
             println!("Reading from virtual addr after plane exit: {}", addr);
             #[allow(unsafe_code)]
             let value = unsafe {

@@ -400,6 +400,14 @@ impl From<mshv_realm_config> for RsiRealmConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Addresses {
+    pub shared_address_start: u64,
+    pub shared_virtual_address_start: u64,
+    pub shared_address_start_command: u64,
+    pub shared_virtual_address_start_command: u64,
+}
+
 impl MshvVtl {
     /// Get the realm-specific parameters from the RMM
     pub fn get_realm_config(&self) -> Result<RsiRealmConfig, Error> {

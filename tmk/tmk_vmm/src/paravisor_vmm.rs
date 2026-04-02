@@ -142,10 +142,8 @@ impl RunContext<'_> {
                 }),
                 vmbus_relay: false,
             },
-            self.state.shared_address_start,
-            self.state.shared_virtual_address_start,
-            self.state.shared_address_start_command,
-            self.state.shared_virtual_address_start_command,)
+            self.state.addresses.unwrap_or_default(),
+            )
             .await?;
 
         let partition = Arc::new(partition);
