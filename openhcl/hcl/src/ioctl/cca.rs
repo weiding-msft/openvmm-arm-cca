@@ -3,6 +3,7 @@
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 
+ use crate::Inspect;
 use super::Hcl;
 use super::HclVp;
 use super::MshvVtl;
