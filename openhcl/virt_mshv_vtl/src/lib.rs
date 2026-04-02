@@ -1664,7 +1664,7 @@ pub struct UhProtoPartition<'a> {
     cpuid: virt::CpuidLeafSet,
     #[cfg(guest_arch = "aarch64")]
     realm_config: RsiRealmConfig,
-    #[warn(dead_code)]
+    #[allow(dead_code)]
     addresses: Addresses,
 }
 
