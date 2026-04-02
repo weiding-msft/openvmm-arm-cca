@@ -9,7 +9,6 @@ use crate::run::RunContext;
 use crate::run::RunnerBuilder;
 use crate::run::TestResult;
 use guestmem::GuestMemory;
-use hcl::ioctl::IsolationType;
 use std::sync::Arc;
 use virt::Partition;
 use virt_mshv_vtl::UhLateParams;

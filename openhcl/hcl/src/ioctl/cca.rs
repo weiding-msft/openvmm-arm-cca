@@ -401,6 +401,13 @@ impl From<mshv_realm_config> for RsiRealmConfig {
     }
 }
 
+/// Used to know which address to write in plane 1 and read from in plane 0
+/// And which address to write to the command address of clean exit of plane 1
+/// 
+/// * shared_address_start - GPA
+/// * shared_virtual_address_start - GVA
+/// * shared_address_start_command - GPA
+/// * shared_virtual_address_start_command - GVA
 #[derive(Debug, Clone, Copy, Inspect, Default)]
 pub struct Addresses {
     pub shared_address_start: u64,

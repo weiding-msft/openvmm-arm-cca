@@ -1827,7 +1827,7 @@ impl<'a> UhProtoPartition<'a> {
             cpuid,
             #[cfg_attr(guest_arch = "aarch64", allow(unused_variables))]
             realm_config,
-            addresses,
+            addresses: _,
         } = self;
         let isolation = params.isolation;
         let is_hardware_isolated = isolation.is_hardware_isolated();

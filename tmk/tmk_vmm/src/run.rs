@@ -11,7 +11,6 @@ use futures::StreamExt as _;
 use guestmem::GuestMemory;
 use hvdef::HvError;
 use hvdef::Vtl;
-use loader::importer::IsolationType;
 use hcl::ioctl::cca::Addresses;
 use pal_async::DefaultDriver;
 use std::sync::Arc;
