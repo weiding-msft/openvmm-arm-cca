@@ -186,7 +186,9 @@ fn make_target(rt: &RustRuntimeServices<'_>, arch: &str, target: &str, jobs: &st
 impl SimpleFlowNode for Node {
     type Request = Params;
 
-    fn imports(_ctx: &mut ImportCtx<'_>) {}
+    fn imports(ctx: &mut ImportCtx<'_>) {
+        ctx.import::<flowey_lib_common::install_rust::Node>();
+    }
 
     fn process_request(request: Self::Request, ctx: &mut NodeCtx<'_>) -> anyhow::Result<()> {
         let Params {
@@ -196,9 +198,27 @@ impl SimpleFlowNode for Node {
             done,
         } = request;
 
+        let rust_installed = if do_installs {
+            ctx.req(flowey_lib_common::install_rust::Request::AutoInstall(true));
+            ctx.req(flowey_lib_common::install_rust::Request::IgnoreVersion(true));
+            ctx.req(flowey_lib_common::install_rust::Request::InstallTargetTriple(
+                target_lexicon::triple!("aarch64-unknown-linux-gnu"),
+            ));
+            ctx.req(flowey_lib_common::install_rust::Request::InstallTargetTriple(
+                target_lexicon::triple!("aarch64-unknown-none"),
+            ));
+            Some(ctx.reqv(flowey_lib_common::install_rust::Request::EnsureInstalled))
+        } else {
+            None
+        };
+
         ctx.emit_rust_step("install shrinkwrap", |ctx| {
             done.claim(ctx);
+            rust_installed.map(|v| v.claim(ctx));
             move |rt| {
+                if do_installs {
+                    log::info!("Rust cross-compilation targets ensured by install_rust node.");
+                }
 
                 // Check if required packages are installed
                 let required_packages = vec![
@@ -322,10 +342,6 @@ impl SimpleFlowNode for Node {
 
                 // Install Rust targets and build TMK components if do_installs is true
                 if do_installs {
-                    log::info!("Installing Rust cross-compilation targets...");
-                    flowey::shell_cmd!(rt, "rustup target add aarch64-unknown-linux-gnu").run()?;
-                    flowey::shell_cmd!(rt, "rustup target add aarch64-unknown-none").run()?;
-
                     // Change to the TMK kernel directory (which should be the openvmm repo root)
                     rt.sh.change_dir(&tmk_kernel_dir);
 
