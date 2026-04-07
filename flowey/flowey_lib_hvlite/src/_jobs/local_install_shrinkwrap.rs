@@ -4,6 +4,7 @@
 //! Install Shrinkwrap and its dependencies on Ubuntu.
 use flowey::node::prelude::*;
 use flowey::node::prelude::RustRuntimeServices;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -32,6 +33,9 @@ const HYPERV_CONFIGS: &[&str] = &[
 
 flowey_request! {
     pub struct Params {
+        /// Pipeline output directory (e.g. target/cca-fvp). TMK binaries will be placed
+        /// at <out_dir>/simple_tmk and <out_dir>/tmk_vmm.
+        pub out_dir: PathBuf,
         /// Directory where shrinkwrap repo will be cloned (e.g. <out_dir>/shrinkwrap)
         pub shrinkwrap_dir: PathBuf,
         /// If true, run apt-get and pip installs (requires sudo).
@@ -89,38 +93,6 @@ fn enable_kernel_configs(rt: &RustRuntimeServices<'_>, group: &str, configs: &[&
     Ok(())
 }
 
-/// Build a Rust binary if it doesn't already exist
-fn build_rust_binary(
-    rt: &RustRuntimeServices<'_>,
-    binary_path: &Path,
-    source_roots: &[PathBuf],
-    package: &str,
-    build_args: &[&str],
-) -> anyhow::Result<()> {
-    if !should_rebuild_binary(binary_path, source_roots)? {
-        log::info!("{} binary already exists at {}", package, binary_path.display());
-        return Ok(());
-    }
-
-    log::info!("Building {}...", package);
-    let mut command = flowey::shell_cmd!(rt, "cargo build -p {package}");
-
-    // Add additional build arguments
-    for arg in build_args {
-        command = command.arg(arg);
-    }
-
-    command
-        .env("RUSTC_BOOTSTRAP", "1")
-        .env_remove("ARCH")
-        .env_remove("CROSS_COMPILE")
-        .run()
-        .map_err(|e| anyhow::anyhow!("Failed to build {}: {}", package, e))?;
-
-    log::info!("{} built successfully at: {}", package, binary_path.display());
-    Ok(())
-}
-
 fn should_rebuild_binary(binary_path: &Path, source_roots: &[PathBuf]) -> anyhow::Result<bool> {
     if !binary_path.exists() {
         return Ok(true);
@@ -148,6 +120,30 @@ fn should_rebuild_binary(binary_path: &Path, source_roots: &[PathBuf]) -> anyhow
     }
 
     Ok(false)
+}
+
+// Cargo writes into the specified target directory, later the flowey run_cargo_build relocates the 
+// named output into the step working directory. So if downstream logic expects the canonical repo 
+// path under target/cca-fvp/tmk_vmm/..., we need to copy it back. 
+// This function ensures that the built binary is copied to the expected stable path if it's not already there.
+fn ensure_binary_at_expected_path(actual: &Path, expected: &Path) -> anyhow::Result<()> {
+    if actual == expected {
+        return Ok(());
+    }
+
+    let Some(parent) = expected.parent() else {
+        anyhow::bail!("expected path has no parent: {}", expected.display());
+    };
+    fs_err::create_dir_all(parent)
+        .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    fs_err::copy(actual, expected).with_context(|| {
+        format!(
+            "failed to copy built artifact from {} to {}",
+            actual.display(),
+            expected.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn newest_mtime(path: &Path) -> anyhow::Result<SystemTime> {
@@ -187,39 +183,100 @@ impl SimpleFlowNode for Node {
     type Request = Params;
 
     fn imports(ctx: &mut ImportCtx<'_>) {
-        ctx.import::<flowey_lib_common::install_rust::Node>();
+        ctx.import::<crate::run_cargo_build::Node>();
     }
 
     fn process_request(request: Self::Request, ctx: &mut NodeCtx<'_>) -> anyhow::Result<()> {
         let Params {
+            out_dir,
             shrinkwrap_dir,
             do_installs,
             update_repo,
             done,
         } = request;
 
-        let rust_installed = if do_installs {
-            ctx.req(flowey_lib_common::install_rust::Request::AutoInstall(true));
-            ctx.req(flowey_lib_common::install_rust::Request::IgnoreVersion(true));
-            ctx.req(flowey_lib_common::install_rust::Request::InstallTargetTriple(
-                target_lexicon::triple!("aarch64-unknown-linux-gnu"),
-            ));
-            ctx.req(flowey_lib_common::install_rust::Request::InstallTargetTriple(
-                target_lexicon::triple!("aarch64-unknown-none"),
-            ));
-            Some(ctx.reqv(flowey_lib_common::install_rust::Request::EnsureInstalled))
+        let tmk_kernel_dir = get_openvmm_tmk_repo()?;
+        anyhow::ensure!(
+            tmk_kernel_dir.is_dir(),
+            "OPENVMM_TMK_REPO_PATH does not exist or is not a directory: {}",
+            tmk_kernel_dir.display()
+        );
+
+        // TMK binaries land under the pipeline output dir so both install and
+        // run jobs find them at a stable, shared location.
+        let simple_tmk_binary = out_dir.join("simple_tmk");
+        let tmk_vmm_binary = out_dir.join("tmk_vmm");
+        log::info!("out_dir for TMK binaries is {}", out_dir.display());
+
+        let simple_tmk_sources = vec![
+            tmk_kernel_dir.join("tmk/simple_tmk/src"),
+            tmk_kernel_dir.join("tmk/simple_tmk/Cargo.toml"),
+            tmk_kernel_dir.join("Cargo.toml"),
+            tmk_kernel_dir.join("Cargo.lock"),
+        ];
+        let tmk_vmm_sources = vec![
+            tmk_kernel_dir.join("tmk/tmk_vmm/src"),
+            tmk_kernel_dir.join("tmk/tmk_vmm/Cargo.toml"),
+            tmk_kernel_dir.join("Cargo.toml"),
+            tmk_kernel_dir.join("Cargo.lock"),
+        ];
+
+        let should_build_simple_tmk = do_installs && should_rebuild_binary(&simple_tmk_binary, &simple_tmk_sources)?;
+        let should_build_tmk_vmm = do_installs && should_rebuild_binary(&tmk_vmm_binary, &tmk_vmm_sources)?;
+
+        let simple_tmk_output = if should_build_simple_tmk {
+            Some(ctx.reqv(|v| crate::run_cargo_build::Request {
+                crate_name: "simple_tmk".into(),
+                out_name: "simple_tmk".into(),
+                profile: crate::run_cargo_build::BuildProfile::Debug,
+                features: Default::default(),
+                crate_type: flowey_lib_common::run_cargo_build::CargoCrateType::Bin,
+                target: target_lexicon::Triple {
+                    architecture: target_lexicon::Architecture::Aarch64(
+                        target_lexicon::Aarch64Architecture::Aarch64,
+                    ),
+                    operating_system: target_lexicon::OperatingSystem::None_,
+                    environment: target_lexicon::Environment::Unknown,
+                    vendor: target_lexicon::Vendor::Custom(
+                        target_lexicon::CustomVendor::Static("minimal_rt"),
+                    ),
+                    binary_format: target_lexicon::BinaryFormat::Unknown,
+                },
+                no_split_dbg_info: true,
+                extra_env: Some(ReadVar::from_static(
+                    [("RUSTC_BOOTSTRAP".to_string(), "1".to_string())]
+                        .into_iter()
+                        .collect::<BTreeMap<_, _>>(),
+                )),
+                pre_build_deps: Vec::new(),
+                output: v,
+            }))
+        } else {
+            None
+        };
+
+        let tmk_vmm_output = if should_build_tmk_vmm {
+            Some(ctx.reqv(|v| crate::run_cargo_build::Request {
+                crate_name: "tmk_vmm".into(),
+                out_name: "tmk_vmm".into(),
+                profile: crate::run_cargo_build::BuildProfile::Debug,
+                features: Default::default(),
+                crate_type: flowey_lib_common::run_cargo_build::CargoCrateType::Bin,
+                target: target_lexicon::triple!("aarch64-unknown-linux-gnu"),
+                no_split_dbg_info: true,
+                extra_env: None,
+                pre_build_deps: Vec::new(),
+                output: v,
+            }))
         } else {
             None
         };
 
         ctx.emit_rust_step("install shrinkwrap", |ctx| {
             done.claim(ctx);
-            rust_installed.map(|v| v.claim(ctx));
+            let simple_tmk_output = simple_tmk_output.map(|v| v.claim(ctx));
+            let tmk_vmm_output = tmk_vmm_output.map(|v| v.claim(ctx));
             move |rt| {
-                if do_installs {
-                    log::info!("Rust cross-compilation targets ensured by install_rust node.");
-                }
-
                 // Check if required packages are installed
                 let required_packages = vec![
                     "netcat-openbsd",
@@ -326,12 +383,6 @@ impl SimpleFlowNode for Node {
                 }
 
                 // Prefer local OpenVMM checkout for TMK components
-                let tmk_kernel_dir = get_openvmm_tmk_repo()?;
-                anyhow::ensure!(
-                    tmk_kernel_dir.is_dir(),
-                    "OPENVMM_TMK_REPO_PATH does not exist or is not a directory: {}",
-                    tmk_kernel_dir.display()
-                );
                 log::info!("Using local OpenVMM repo at {}", tmk_kernel_dir.display());
                 if update_repo {
                     log::info!(
@@ -340,53 +391,41 @@ impl SimpleFlowNode for Node {
                     );
                 }
 
+                let mut resolved_simple_tmk_binary = simple_tmk_binary.clone();
+                let mut resolved_tmk_vmm_binary = tmk_vmm_binary.clone();
+
                 // Install Rust targets and build TMK components if do_installs is true
                 if do_installs {
-                    // Change to the TMK kernel directory (which should be the openvmm repo root)
-                    rt.sh.change_dir(&tmk_kernel_dir);
-
                     log::info!("Building TMK components...");
 
-                    // Build simple_tmk
-                    let simple_tmk_binary = tmk_kernel_dir
-                        .join("target")
-                        .join("aarch64-minimal_rt-none")
-                        .join("debug")
-                        .join("simple_tmk");
-                    build_rust_binary(
-                        &rt,
-                        &simple_tmk_binary,
-                        &[
-                            tmk_kernel_dir.join("tmk/simple_tmk/src"),
-                            tmk_kernel_dir.join("tmk/simple_tmk/Cargo.toml"),
-                            tmk_kernel_dir.join("Cargo.toml"),
-                            tmk_kernel_dir.join("Cargo.lock"),
-                        ],
-                        "simple_tmk",
-                        &["--config", "openhcl/minimal_rt/aarch64-config.toml"],
-                    )?;
+                    let simple_tmk_binary = if let Some(output) = simple_tmk_output {
+                        match rt.read(output) {
+                            crate::run_cargo_build::CargoBuildOutput::ElfBin { bin, .. } => bin,
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        log::info!(
+                            "simple_tmk binary already exists at {}",
+                            simple_tmk_binary.display()
+                        );
+                        simple_tmk_binary.clone()
+                    };
+                    ensure_binary_at_expected_path(&simple_tmk_binary, &resolved_simple_tmk_binary)?;
+                    log::info!("simple_tmk binary ready at {}", simple_tmk_binary.display());
+                    resolved_simple_tmk_binary = simple_tmk_binary;
 
-                    // Build tmk_vmm
-                    let tmk_vmm_binary = tmk_kernel_dir
-                        .join("target")
-                        .join("aarch64-unknown-linux-gnu")
-                        .join("debug")
-                        .join("tmk_vmm");
-                    build_rust_binary(
-                        &rt,
-                        &tmk_vmm_binary,
-                        &[
-                            tmk_kernel_dir.join("tmk/tmk_vmm/src"),
-                            tmk_kernel_dir.join("tmk/tmk_vmm/Cargo.toml"),
-                            tmk_kernel_dir.join("Cargo.toml"),
-                            tmk_kernel_dir.join("Cargo.lock"),
-                        ],
-                        "tmk_vmm",
-                        &["--target", "aarch64-unknown-linux-gnu"],
-                    )?;
-
-                    // Return to parent directory
-                    rt.sh.change_dir(shrinkwrap_dir.parent().unwrap());
+                    let tmk_vmm_binary = if let Some(output) = tmk_vmm_output {
+                        match rt.read(output) {
+                            crate::run_cargo_build::CargoBuildOutput::ElfBin { bin, .. } => bin,
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        log::info!("tmk_vmm binary already exists at {}", tmk_vmm_binary.display());
+                        tmk_vmm_binary.clone()
+                    };
+                    ensure_binary_at_expected_path(&tmk_vmm_binary, &resolved_tmk_vmm_binary)?;
+                    log::info!("tmk_vmm binary ready at {}", tmk_vmm_binary.display());
+                    resolved_tmk_vmm_binary = tmk_vmm_binary;
                 } else {
                     log::info!("Skipping TMK builds (do_installs=false). Run with --install-missing-deps to build.");
                 }
@@ -459,15 +498,22 @@ impl SimpleFlowNode for Node {
                 log::info!("OHCL Linux Kernel ready at: {}", host_kernel_dir.display());
                 log::info!("Kernel Image at: {}", kernel_image.display());
 
-                // Check if TMK binaries exist and report their status
-                let simple_tmk_binary = tmk_kernel_dir.join("target").join("aarch64-minimal_rt-none").join("debug").join("simple_tmk");
-                let tmk_vmm_binary = tmk_kernel_dir.join("target").join("aarch64-unknown-linux-gnu").join("debug").join("tmk_vmm");
-
-                if simple_tmk_binary.exists() {
-                    log::info!("simple_tmk binary at: {}", simple_tmk_binary.display());
+                // Report the exact binary paths resolved earlier (from pipeline params or run_cargo_build output)
+                if resolved_simple_tmk_binary.exists() {
+                    log::info!("simple_tmk binary at: {}", resolved_simple_tmk_binary.display());
+                } else {
+                    log::warn!(
+                        "simple_tmk binary not found at expected path: {}",
+                        resolved_simple_tmk_binary.display()
+                    );
                 }
-                if tmk_vmm_binary.exists() {
-                    log::info!("tmk_vmm binary at: {}", tmk_vmm_binary.display());
+                if resolved_tmk_vmm_binary.exists() {
+                    log::info!("tmk_vmm binary at: {}", resolved_tmk_vmm_binary.display());
+                } else {
+                    log::warn!(
+                        "tmk_vmm binary not found at expected path: {}",
+                        resolved_tmk_vmm_binary.display()
+                    );
                 }
 
                 log::info!("");
