@@ -181,6 +181,7 @@ impl IntoPipeline for CcaFvpCli {
                 deny_warnings: false,
             })
             .dep_on(|ctx| flowey_lib_hvlite::_jobs::local_install_shrinkwrap::Params {
+                out_dir: dir.clone(),
                 shrinkwrap_dir: shrinkwrap_dir.clone(),
                 do_installs: install_missing_deps,
                 update_repo: update_shrinkwrap_repo,

@@ -10,7 +10,8 @@ use super::local_openvmm_repo::get_openvmm_tmk_repo;
 flowey_request! {
     /// Parameters for modifying rootfs.ext2 and running shrinkwrap.
     pub struct Params {
-        /// Output directory where shrinkwrap build artifacts are located
+        /// Pipeline output directory (e.g. target/cca-fvp). TMK binaries are
+        /// expected at <out_dir>/simple_tmk and <out_dir>/tmk_vmm.
         pub out_dir: PathBuf,
         /// Directory where shrinkwrap repo is cloned
         pub shrinkwrap_dir: PathBuf,
@@ -57,8 +58,8 @@ impl SimpleFlowNode for Node {
                 );
                 let host_kernel_dir = toolchain_dir.join("OHCL-Linux-Kernel");
 
-                let simple_tmk = tmk_kernel_dir.join("target/aarch64-minimal_rt-none/debug/simple_tmk");
-                let tmk_vmm = tmk_kernel_dir.join("target/aarch64-unknown-linux-gnu/debug/tmk_vmm");
+                let simple_tmk = out_dir.join("simple_tmk");
+                let tmk_vmm = out_dir.join("tmk_vmm");
                 let kernel_image_path = host_kernel_dir.join("arch/arm64/boot/Image");
 
                 // Modify rootfs.ext2 to inject TMK binaries and kernel
