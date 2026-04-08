@@ -98,8 +98,7 @@ impl CommonState {
         .context("failed to build processor topology")?;
 
         let ram_size = 0x400000;
-
-        
+                
         let mut memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         let mut shared_memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         let mut mmemory = None;
@@ -149,7 +148,6 @@ impl CommonState {
                 let start = (raw_start + ALIGN - 1) & !(ALIGN - 1);
                 let end   = raw_end & !(ALIGN - 1);
 
-                // #[cfg(guest_arch = "aarch64")]
                 memory_layout = MemoryLayout::new_from_ranges(
                         &[MemoryRangeWithNode {
                             range: MemoryRange::new(Range {
@@ -178,7 +176,6 @@ impl CommonState {
                         .map_err(anyhow::Error::msg)
                         .context("failed to get page physical address")?;
 
-                // #[cfg(guest_arch = "aarch64")]
                 shared_memory_layout = MemoryLayout::new_from_ranges(
                         &[MemoryRangeWithNode {
                             range: MemoryRange::new(Range {

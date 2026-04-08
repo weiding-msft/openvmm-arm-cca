@@ -11,6 +11,7 @@ use super::NoRunner;
 use super::ProcessorRunner;
 use crate::GuestVtl;
 use crate::ioctl::Error;
+use crate::ioctl::HvError;
 use crate::ioctl::ioctls::mshv_realm_config;
 use crate::ioctl::ioctls::mshv_rsi_set_mem_perm;
 use crate::ioctl::ioctls::mshv_rsi_sysreg_write;
@@ -435,7 +436,7 @@ impl MshvVtl {
         vtl: GuestVtl,
         sysreg: u64,
         value: u64,
-    ) -> Result<(), hvdef::HvError> {
+    ) -> Result<(), HvError> {
         let mut sysreg_write = mshv_rsi_sysreg_write::default();
         sysreg_write.vtl = vtl.into();
         sysreg_write.sysreg = sysreg;
@@ -444,7 +445,7 @@ impl MshvVtl {
         // SAFETY: Calling hcl_rsi_sysreg_write ioctl with the correct arguments.
         unsafe {
             hcl_rsi_sysreg_write(self.file.as_raw_fd(), &sysreg_write)
-                .map_err(|_| hvdef::HvError::InvalidRegisterValue)?;
+                .map_err(|_| HvError::InvalidRegisterValue)?;
         }
         Ok(())
     }
@@ -455,7 +456,7 @@ impl MshvVtl {
         vtl: GuestVtl,
         base_addr: u64,
         top_addr: u64,
-    ) -> Result<(), hvdef::HvError> {
+    ) -> Result<(), HvError> {
         let set_mem_perm = mshv_rsi_set_mem_perm {
             plane: if vtl == GuestVtl::Vtl0 {
                 1
@@ -469,9 +470,34 @@ impl MshvVtl {
         // SAFETY: Calling hcl_rsi_set_mem_perm ioctl with the correct arguments.
         unsafe {
             hcl_rsi_set_mem_perm(self.file.as_raw_fd(), &set_mem_perm)
-                .map_err(|_| hvdef::HvError::InvalidRegisterValue)?;
+                .map_err(|_| HvError::InvalidRegisterValue)?;
         }
         Ok(())
+    }
+}
+
+impl Hcl {
+    /// Gets Realm config
+    #[cfg(guest_arch = "aarch64")]
+    pub fn get_realm_config(&self) -> Result<RsiRealmConfig, Error> {
+        self.mshv_vtl.get_realm_config()
+    }
+
+    /// sets system registers through rsi calls
+    #[cfg(guest_arch = "aarch64")]
+    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), HvError> {
+        self.mshv_vtl.rsi_sysreg_write(vtl, sysreg, value)
+    }
+
+    /// setting memory permissions
+    #[cfg(guest_arch = "aarch64")]
+    pub fn rsi_set_mem_perm(
+        &self,
+        vtl: GuestVtl,
+        base_addr: u64,
+        top_addr: u64,
+    ) -> Result<(), HvError> {
+        self.mshv_vtl.rsi_set_mem_perm(vtl, base_addr, top_addr)
     }
 }
 

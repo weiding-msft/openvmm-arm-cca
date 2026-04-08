@@ -82,8 +82,6 @@ use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
 
-use crate::ioctl::cca::RsiRealmConfig;
-
 // TODO: Chunk this up into smaller per-interface errors.
 /// Error returned by HCL operations.
 #[derive(Error, Debug)]
@@ -634,7 +632,7 @@ pub(crate) mod ioctls {
     pub const HCL_CAP_REGISTER_PAGE: u32 = 1;
     pub const HCL_CAP_VTL_RETURN_ACTION: u32 = 2;
     pub const HCL_CAP_DR6_SHARED: u32 = 3;
-    #[cfg(guest_arch = "x86_64")]
+    // #[cfg(guest_arch = "x86_64")]
     pub const HCL_CAP_LOWER_VTL_TIMER_VIRT: u32 = 4;
 
     ioctl_write_ptr!(
@@ -741,6 +739,8 @@ impl Mshv {
     }
 
     fn check_extension(&self, cap: u32) -> Result<bool, Error> {
+        #[cfg(guest_arch = "aarch64")]
+        return Ok(false);
         // SAFETY: calling IOCTL as documented, with no special requirements.
         let supported = unsafe {
             hcl_check_extension(self.file.as_raw_fd(), &cap).map_err(Error::CheckExtensions)?
@@ -1411,7 +1411,6 @@ pub struct Hcl {
     supports_vtl_ret_action: bool,
     supports_register_page: bool,
     dr6_shared: bool,
-     #[cfg(guest_arch = "x86_64")]
     supports_lower_vtl_timer_virt: bool,
     isolation: IsolationType,
     snp_register_bitmap: [u8; 64],
@@ -1855,7 +1854,6 @@ impl Hcl {
         let supports_register_page = mshv_fd.check_extension(HCL_CAP_REGISTER_PAGE)?;
         let dr6_shared = mshv_fd.check_extension(HCL_CAP_DR6_SHARED)?;
 
-        #[cfg(guest_arch = "x86_64")]
         let supports_lower_vtl_timer_virt = mshv_fd.check_extension(HCL_CAP_LOWER_VTL_TIMER_VIRT)?;
 
         #[cfg(guest_arch = "x86_64")]
@@ -1893,7 +1891,6 @@ impl Hcl {
             supports_vtl_ret_action,
             supports_register_page,
             dr6_shared,
-             #[cfg(guest_arch = "x86_64")]
             supports_lower_vtl_timer_virt,
             isolation,
             snp_register_bitmap,
@@ -2652,26 +2649,4 @@ impl Hcl {
         Ok(())
     }
 
-    /// Gets Realm config
-    #[cfg(guest_arch = "aarch64")]
-    pub fn get_realm_config(&self) -> Result<RsiRealmConfig, Error> {
-        self.mshv_vtl.get_realm_config()
-    }
-
-    /// sets system registers through rsi calls
-    #[cfg(guest_arch = "aarch64")]
-    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), HvError> {
-        self.mshv_vtl.rsi_sysreg_write(vtl, sysreg, value)
-    }
-
-    /// setting memory permissions
-    #[cfg(guest_arch = "aarch64")]
-    pub fn rsi_set_mem_perm(
-        &self,
-        vtl: GuestVtl,
-        base_addr: u64,
-        top_addr: u64,
-    ) -> Result<(), HvError> {
-        self.mshv_vtl.rsi_set_mem_perm(vtl, base_addr, top_addr)
-    }
 }
