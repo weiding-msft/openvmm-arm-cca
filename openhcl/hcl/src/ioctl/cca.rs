@@ -475,3 +475,28 @@ impl MshvVtl {
     }
 }
 
+impl Hcl {
+    /// Gets Realm config
+    #[cfg(guest_arch = "aarch64")]
+    pub fn get_realm_config(&self) -> Result<RsiRealmConfig, Error> {
+        self.mshv_vtl.get_realm_config()
+    }
+
+    /// sets system registers through rsi calls
+    #[cfg(guest_arch = "aarch64")]
+    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), HvError> {
+        self.mshv_vtl.rsi_sysreg_write(vtl, sysreg, value)
+    }
+
+    /// setting memory permissions
+    #[cfg(guest_arch = "aarch64")]
+    pub fn rsi_set_mem_perm(
+        &self,
+        vtl: GuestVtl,
+        base_addr: u64,
+        top_addr: u64,
+    ) -> Result<(), HvError> {
+        self.mshv_vtl.rsi_set_mem_perm(vtl, base_addr, top_addr)
+    }
+}
+
