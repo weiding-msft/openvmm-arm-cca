@@ -11,6 +11,7 @@ use super::NoRunner;
 use super::ProcessorRunner;
 use crate::GuestVtl;
 use crate::ioctl::Error;
+use crate::ioctl::HvError;
 use crate::ioctl::ioctls::mshv_realm_config;
 use crate::ioctl::ioctls::mshv_rsi_set_mem_perm;
 use crate::ioctl::ioctls::mshv_rsi_sysreg_write;
