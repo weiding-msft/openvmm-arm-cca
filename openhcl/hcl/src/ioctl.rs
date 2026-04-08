@@ -16,6 +16,7 @@ use self::deferred::DeferredActionSlots;
 use self::ioctls::*;
 use crate::GuestVtl;
 use crate::ioctl::deferred::DeferredAction;
+use crate::ioctl::cca::RsiRealmConfig;
 use crate::mapped_page::MappedPage;
 use crate::protocol;
 use crate::protocol::EnterModes;
@@ -81,8 +82,6 @@ use zerocopy::FromZeros;
 use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
-
-use crate::ioctl::cca::RsiRealmConfig;
 
 // TODO: Chunk this up into smaller per-interface errors.
 /// Error returned by HCL operations.
