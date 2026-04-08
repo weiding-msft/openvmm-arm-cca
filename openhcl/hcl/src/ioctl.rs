@@ -740,6 +740,8 @@ impl Mshv {
     }
 
     fn check_extension(&self, cap: u32) -> Result<bool, Error> {
+        #[cfg(guest_arch = "aarch64")]
+        return Ok(false);
         // SAFETY: calling IOCTL as documented, with no special requirements.
         let supported = unsafe {
             hcl_check_extension(self.file.as_raw_fd(), &cap).map_err(Error::CheckExtensions)?
@@ -1853,11 +1855,7 @@ impl Hcl {
         let supports_register_page = mshv_fd.check_extension(HCL_CAP_REGISTER_PAGE)?;
         let dr6_shared = mshv_fd.check_extension(HCL_CAP_DR6_SHARED)?;
 
-        // #[cfg(guest_arch = "x86_64")]
         let supports_lower_vtl_timer_virt = mshv_fd.check_extension(HCL_CAP_LOWER_VTL_TIMER_VIRT)?;
-
-        // #[cfg(guest_arch = "aarch64")]
-        // let supports_lower_vtl_timer_virt = false;
 
         #[cfg(guest_arch = "x86_64")]
         tracing::debug!(
@@ -2651,27 +2649,5 @@ impl Hcl {
 
         Ok(())
     }
-
-    /// Gets Realm config
-    #[cfg(guest_arch = "aarch64")]
-    pub fn get_realm_config(&self) -> Result<RsiRealmConfig, Error> {
-        self.mshv_vtl.get_realm_config()
-    }
-
-    /// sets system registers through rsi calls
-    #[cfg(guest_arch = "aarch64")]
-    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), HvError> {
-        self.mshv_vtl.rsi_sysreg_write(vtl, sysreg, value)
-    }
-
-    /// setting memory permissions
-    #[cfg(guest_arch = "aarch64")]
-    pub fn rsi_set_mem_perm(
-        &self,
-        vtl: GuestVtl,
-        base_addr: u64,
-        top_addr: u64,
-    ) -> Result<(), HvError> {
-        self.mshv_vtl.rsi_set_mem_perm(vtl, base_addr, top_addr)
-    }
+    
 }
