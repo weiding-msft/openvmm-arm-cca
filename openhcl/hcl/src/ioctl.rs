@@ -1011,7 +1011,7 @@ impl MshvHvcall {
                     // Hardware isolated VMs cannot trust output from the hypervisor, but check for
                     // consistency between the number of elements processed and the expected count. A
                     // violation of this assertion indicates a buggy or malicious hypervisor.
-                    // #[cfg(guest_arch = "x86_64")]
+                    #[cfg(guest_arch = "x86_64")]
                     assert!(
                         (call_object.status.result().is_ok()
                             && call_object.control.rep_count()
@@ -1410,7 +1410,6 @@ pub struct Hcl {
     supports_vtl_ret_action: bool,
     supports_register_page: bool,
     dr6_shared: bool,
-     #[cfg(guest_arch = "x86_64")]
     supports_lower_vtl_timer_virt: bool,
     isolation: IsolationType,
     snp_register_bitmap: [u8; 64],
@@ -1854,8 +1853,11 @@ impl Hcl {
         let supports_register_page = mshv_fd.check_extension(HCL_CAP_REGISTER_PAGE)?;
         let dr6_shared = mshv_fd.check_extension(HCL_CAP_DR6_SHARED)?;
 
-        #[cfg(guest_arch = "x86_64")]
+        // #[cfg(guest_arch = "x86_64")]
         let supports_lower_vtl_timer_virt = mshv_fd.check_extension(HCL_CAP_LOWER_VTL_TIMER_VIRT)?;
+
+        // #[cfg(guest_arch = "aarch64")]
+        // let supports_lower_vtl_timer_virt = false;
 
         #[cfg(guest_arch = "x86_64")]
         tracing::debug!(
@@ -1892,7 +1894,6 @@ impl Hcl {
             supports_vtl_ret_action,
             supports_register_page,
             dr6_shared,
-             #[cfg(guest_arch = "x86_64")]
             supports_lower_vtl_timer_virt,
             isolation,
             snp_register_bitmap,
