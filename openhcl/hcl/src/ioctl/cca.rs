@@ -436,7 +436,7 @@ impl MshvVtl {
         vtl: GuestVtl,
         sysreg: u64,
         value: u64,
-    ) -> Result<(), hvdef::HvError> {
+    ) -> Result<(), HvError> {
         let mut sysreg_write = mshv_rsi_sysreg_write::default();
         sysreg_write.vtl = vtl.into();
         sysreg_write.sysreg = sysreg;
@@ -445,7 +445,7 @@ impl MshvVtl {
         // SAFETY: Calling hcl_rsi_sysreg_write ioctl with the correct arguments.
         unsafe {
             hcl_rsi_sysreg_write(self.file.as_raw_fd(), &sysreg_write)
-                .map_err(|_| hvdef::HvError::InvalidRegisterValue)?;
+                .map_err(|_| HvError::InvalidRegisterValue)?;
         }
         Ok(())
     }
@@ -456,7 +456,7 @@ impl MshvVtl {
         vtl: GuestVtl,
         base_addr: u64,
         top_addr: u64,
-    ) -> Result<(), hvdef::HvError> {
+    ) -> Result<(), HvError> {
         let set_mem_perm = mshv_rsi_set_mem_perm {
             plane: if vtl == GuestVtl::Vtl0 {
                 1
@@ -470,7 +470,7 @@ impl MshvVtl {
         // SAFETY: Calling hcl_rsi_set_mem_perm ioctl with the correct arguments.
         unsafe {
             hcl_rsi_set_mem_perm(self.file.as_raw_fd(), &set_mem_perm)
-                .map_err(|_| hvdef::HvError::InvalidRegisterValue)?;
+                .map_err(|_| HvError::InvalidRegisterValue)?;
         }
         Ok(())
     }
