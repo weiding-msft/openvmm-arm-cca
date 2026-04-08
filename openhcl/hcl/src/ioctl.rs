@@ -633,7 +633,7 @@ pub(crate) mod ioctls {
     pub const HCL_CAP_REGISTER_PAGE: u32 = 1;
     pub const HCL_CAP_VTL_RETURN_ACTION: u32 = 2;
     pub const HCL_CAP_DR6_SHARED: u32 = 3;
-    #[cfg(guest_arch = "x86_64")]
+    // #[cfg(guest_arch = "x86_64")]
     pub const HCL_CAP_LOWER_VTL_TIMER_VIRT: u32 = 4;
 
     ioctl_write_ptr!(
