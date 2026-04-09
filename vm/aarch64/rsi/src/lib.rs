@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Arm CCA specific definitions, including for the Realm Service Interface (RSI).
-#![allow(unsafe_code)]
+#![expect(unsafe_code)]
 
 // TODO: CCA: A lot of the code in this module depends on who gets to package the RSI calls.
 // If OpenVMM is the one that packages the RSI calls, then this module should be
