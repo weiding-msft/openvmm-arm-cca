@@ -2515,24 +2515,12 @@ impl From<HvRegisterValue> for HvX64TableRegister {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoBytes, Immutable, KnownLayout, FromBytes)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoBytes, Immutable, KnownLayout, FromBytes, FromZeros)]
 pub struct HvX64SegmentRegister {
     pub base: u64,
     pub limit: u32,
     pub selector: u16,
     pub attributes: u16,
-}
-
-/// Place holder to default for arm64
-impl HvX64SegmentRegister {
-    pub fn default_arm64() -> Self{
-        Self {
-            base: 0,
-            limit: 0,
-            selector: 0,
-            attributes: 0,
-        }
-    }
 }
 
 impl From<HvX64SegmentRegister> for HvRegisterValue {
