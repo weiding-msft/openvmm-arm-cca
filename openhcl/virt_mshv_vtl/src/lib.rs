@@ -31,7 +31,6 @@ cfg_if::cfg_if!(
         /// Bitarray type for representing IRR bits in a x86-64 APIC
         /// Each bit represent the 256 possible vectors.
         type IrrBitmap = BitArray<[u32; 8], Lsb0>;
-        use hcl::GuestVtl;
         use virt::X86Partition;
         use virt_support_apic::LocalApicSet;
     } else if #[cfg(guest_arch = "aarch64")] {
@@ -50,7 +49,7 @@ use hv1_emulator::hv::ProcessorVtlHv;
 pub use processor::Backing;
 pub use processor::UhProcessor;
 use rsi::read_cntfrq_el0;
-
+use hcl::GuestVtl;
 use anyhow::Context as AnyhowContext;
 use bitfield_struct::bitfield;
 use bitvec::boxed::BitBox;
