@@ -417,7 +417,7 @@ impl UhCvmVpState {
     /// Creates a new CVM VP state.
     pub(crate) fn new(
         cvm_partition: &UhCvmPartitionState,
-        _inner: &UhPartitionInner,
+        inner: &UhPartitionInner,
         vp_info: &TargetVpInfo,
         _overlay_pages_required: usize,
     ) -> Result<Self, Error> {
@@ -826,11 +826,11 @@ struct WakeReason {
 
 impl WakeReason {
     // Convenient constants.
-    const _EXTINT: Self = Self::new().with_extint(true);
+    const EXTINT: Self = Self::new().with_extint(true);
     const MESSAGE_QUEUES: Self = Self::new().with_message_queues(true);
     #[cfg(guest_arch = "x86_64")]
     const HV_START_ENABLE_VP_VTL: Self = Self::new().with_hv_start_enable_vtl_vp(true); // StartVp/EnableVpVtl handling
-    const _INTCON: Self = Self::new().with_intcon(true);
+    const INTCON: Self = Self::new().with_intcon(true);
     #[cfg(guest_arch = "x86_64")]
     const UPDATE_PROXY_IRR_FILTER: Self = Self::new().with_update_proxy_irr_filter(true);
 }
@@ -950,11 +950,6 @@ impl UhPartitionInner {
     #[cfg(guest_arch = "x86_64")]
     fn lapic(&self, vtl: GuestVtl) -> Option<&LocalApicSet> {
         self.backing_shared.cvm_state().map(|x| &x.lapic[vtl])
-    }
-
-    #[cfg(not(guest_arch = "x86_64"))]
-    fn lapic(&self, _vtl: GuestVtl) -> Option<()> {
-        None
     }
 
     fn hv(&self) -> Option<&GlobalHv<2>> {
@@ -1729,7 +1724,7 @@ impl<'a> UhProtoPartition<'a> {
                 Self::check_guest_vsm_support(None, &hcl)?
             }
 
-            #[cfg(guest_arch = "x86_64")]
+            // #[cfg(guest_arch = "x86_64")]
             {
                 let privs = hcl
                     .get_privileges_and_features_info()
@@ -1756,7 +1751,7 @@ impl<'a> UhProtoPartition<'a> {
             }
             .build()
             .map_err(Error::CvmCpuid)?,
-            // TODO: CCA: what do we replace cpuid with?
+
             IsolationType::Cca | IsolationType::Vbs | IsolationType::None => None,
 
         };
