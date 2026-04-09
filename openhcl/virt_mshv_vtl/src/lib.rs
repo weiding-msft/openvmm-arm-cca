@@ -375,7 +375,7 @@ impl From<EnterMode> for hcl::protocol::EnterMode {
     }
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 #[derive(Inspect)]
 struct GuestVsmVpState {
     /// The pending event that VTL 1 wants to inject into VTL 0. Injected on
@@ -385,7 +385,7 @@ struct GuestVsmVpState {
     reg_intercept: SecureRegisterInterceptState,
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 impl GuestVsmVpState {
     fn new() -> Self {
         GuestVsmVpState {
@@ -461,7 +461,7 @@ impl UhCvmVpState {
     }
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 #[derive(Inspect, Default)]
 #[inspect(hex)]
 /// Configuration of VTL 1 registration for intercepts on certain registers
@@ -1730,7 +1730,7 @@ impl<'a> UhProtoPartition<'a> {
                     .get_privileges_and_features_info()
                     .map_err(Error::GetReg)?;
 
-                Self::check_guest_vsm_support(Some(privs), &hcl)?
+                Self::check_guest_vsm_support(Some(privs), &hcl)?;
             }
         };
 
