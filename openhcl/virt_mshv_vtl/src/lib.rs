@@ -31,26 +31,21 @@ cfg_if::cfg_if!(
         /// Bitarray type for representing IRR bits in a x86-64 APIC
         /// Each bit represent the 256 possible vectors.
         type IrrBitmap = BitArray<[u32; 8], Lsb0>;
+        use hcl::GuestVtl;
+        use virt::X86Partition;
+        use virt_support_apic::LocalApicSet;
     } else if #[cfg(guest_arch = "aarch64")] {
         pub use crate::processor::mshv::arm64::HypervisorBackedArm64 as HypervisorBacked;
         pub use processor::cca::CcaBacked;
         use processor::cca::CcaBackedShared;
         use crate::processor::mshv::arm64::HypervisorBackedArm64Shared as HypervisorBackedShared;
+        use aarch64defs::Vendor;
+        use hcl::ioctl::cca::Addresses;
+        use hcl::ioctl::cca::RsiRealmConfig;
     }
 );
 
 mod processor;
-#[cfg(guest_arch = "aarch64")]
-use aarch64defs::Vendor;
-#[cfg(not(guest_arch = "x86_64"))]
-use hcl::GuestVtl;
-#[cfg(guest_arch = "aarch64")]
-use hcl::ioctl::cca::Addresses;
-// use hcl::ioctl::IsolationType;
-#[cfg(guest_arch = "aarch64")]
-use hcl::ioctl::cca::RsiRealmConfig;
-#[cfg(guest_arch = "x86_64")]
-use hcl::ioctl::cca::RsiRealmConfig;
 use hv1_emulator::hv::ProcessorVtlHv;
 pub use processor::Backing;
 pub use processor::UhProcessor;
@@ -104,8 +99,6 @@ use parking_lot::RwLock;
 use processor::BackingSharedParams;
 use processor::SidecarExitReason;
 use sidecar_client::NewSidecarClientError;
-// #[cfg(not(guest_arch = "x86_64"))]
-// use virt_support_apic::LocalApicSet;
 use std::ops::RangeInclusive;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -121,13 +114,9 @@ use user_driver::DmaClient;
 use virt::IsolationType;
 use virt::PartitionCapabilities;
 use virt::VpIndex;
-#[cfg(guest_arch = "x86_64")]
-use virt::X86Partition;
 use virt::irqcon::IoApicRouting;
 use virt::irqcon::MsiRequest;
 use virt::x86::apic_software_device::ApicSoftwareDevices;
-#[cfg(guest_arch = "x86_64")]
-use virt_support_apic::LocalApicSet;
 use vm_topology::memory::MemoryLayout;
 use vm_topology::processor::ProcessorTopology;
 use vm_topology::processor::TargetVpInfo;
