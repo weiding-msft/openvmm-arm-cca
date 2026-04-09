@@ -1719,20 +1719,13 @@ impl<'a> UhProtoPartition<'a> {
             .map_err(Error::GetReg)?;
         
         let guest_vsm_available = {
-            #[cfg(guest_arch = "aarch64")]
-            {
-                Self::check_guest_vsm_support(None, &hcl)?
-            }
 
-            // #[cfg(guest_arch = "x86_64")]
-            {
                 let privs = hcl
                     .get_privileges_and_features_info()
                     .map_err(Error::GetReg)?;
 
-                Self::check_guest_vsm_support(Some(privs), &hcl)?;
-            }
-        };
+                Self::check_guest_vsm_support(Some(privs), &hcl)?
+            };
 
         #[cfg(guest_arch = "x86_64")]
         let cpuid = match params.isolation {
