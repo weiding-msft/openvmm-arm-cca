@@ -30,6 +30,7 @@ use virt::{VpHaltReason, aarch64::vp::AccessVpState};
 use virt_support_aarch64emu::translate::TranslationRegisters;
 use crate::processor::InterceptMessageState;
 use hvdef::HvRegisterCrInterceptControl;
+use zerocopy::FromZeros;
 
 use super::{BackingSharedParams, UhProcessor, private::BackingPrivate, vp_state::UhVpStateAccess};
  
