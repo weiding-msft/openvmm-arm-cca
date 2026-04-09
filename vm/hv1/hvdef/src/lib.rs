@@ -2515,7 +2515,7 @@ impl From<HvRegisterValue> for HvX64TableRegister {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoBytes, Immutable, KnownLayout, FromBytes, FromZeros)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoBytes, Immutable, KnownLayout, FromBytes)]
 pub struct HvX64SegmentRegister {
     pub base: u64,
     pub limit: u32,
