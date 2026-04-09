@@ -410,7 +410,6 @@ struct UhCvmVpState {
     lapics: VtlArray<LapicState, 2>,
     
     /// Guest VSM state for this vp. Some when VTL 1 is enabled.
-    #[cfg(guest_arch = "x86_64")]
     vtl1: Option<GuestVsmVpState>,
 }
 
@@ -457,7 +456,6 @@ impl UhCvmVpState {
             hv,
             #[cfg(guest_arch = "x86_64")]
             lapics,
-            #[cfg(guest_arch = "x86_64")]
             vtl1: None,
         })
     }
