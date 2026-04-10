@@ -60,8 +60,11 @@ pub struct Cpsr64 {
 #[bitfield(u64)]
 #[derive(IntoBytes, Immutable, KnownLayout, FromBytes)]
 pub struct EsrEl2 {
-    #[bits(25)]
-    pub iss: u32,
+    #[bits(6)]
+    pub lower_iss: u32,
+    pub wnr: bool,
+    #[bits(19)]
+    pub mid: u32,
     pub il: bool,
     #[bits(6)]
     pub ec: u8,
@@ -74,18 +77,18 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        (self.0 & (1 << 6)) != 0
+        self.wnr.as_bytes() != 0
     }
 
     pub fn is_read(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        (self.0 & (1 << 6)) == 0
+        self.wnr.as_bytes() == 0
     }
 
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
-            ((self.iss() & (0x1f << 16)) >> 16) as u8
+            ((self.mid >> 9) & 0x1f) as u8
         } else {
             0
         }
