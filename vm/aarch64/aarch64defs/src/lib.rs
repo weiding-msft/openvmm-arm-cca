@@ -247,10 +247,12 @@ pub struct IssDataAbort {
 impl From<IssDataAbort> for EsrEl2 {
     fn from(abort_code: IssDataAbort) -> Self {
         let val: u32 = abort_code.into();
+        let iss = val & 0x07ff_ffff;
         EsrEl2::new()
             .with_ec(ExceptionClass::DATA_ABORT.0)
             .with_lower_iss((iss & 0x3f) as u32)
             .with_wnr(((iss >> 6) & 1) != 0)
+            .with_mid(((iss >> 7) & 0x7ffff) as u32)
             .with_iss2((val >> 27) as u8)
     }
 }
@@ -341,10 +343,12 @@ pub struct IssInstructionAbort {
 impl From<IssInstructionAbort> for EsrEl2 {
     fn from(instruction_code: IssInstructionAbort) -> Self {
         let val: u32 = instruction_code.into();
+        let iss = val & 0x07ff_ffff;
         EsrEl2::new()
             .with_ec(ExceptionClass::INSTRUCTION_ABORT.0)
             .with_lower_iss((iss & 0x3f) as u32)
             .with_wnr(((iss >> 6) & 1) != 0)
+            .with_mid(((iss >> 7) & 0x7ffff) as u32)
             .with_iss2((val >> 27) as u8)
     }
 }
