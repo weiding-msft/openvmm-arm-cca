@@ -249,7 +249,8 @@ impl From<IssDataAbort> for EsrEl2 {
         let val: u32 = abort_code.into();
         EsrEl2::new()
             .with_ec(ExceptionClass::DATA_ABORT.0)
-            .with_iss(val & 0x07ffffff)
+            .with_lower_iss((iss & 0x3f) as u32)
+            .with_wnr(((iss >> 6) & 1) != 0)
             .with_iss2((val >> 27) as u8)
     }
 }
@@ -342,7 +343,8 @@ impl From<IssInstructionAbort> for EsrEl2 {
         let val: u32 = instruction_code.into();
         EsrEl2::new()
             .with_ec(ExceptionClass::INSTRUCTION_ABORT.0)
-            .with_iss(val & 0x07ffffff)
+            .with_lower_iss((iss & 0x3f) as u32)
+            .with_wnr(((iss >> 6) & 1) != 0)
             .with_iss2((val >> 27) as u8)
     }
 }
