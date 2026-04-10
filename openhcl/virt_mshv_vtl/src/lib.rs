@@ -48,7 +48,7 @@ mod processor;
 use hv1_emulator::hv::ProcessorVtlHv;
 pub use processor::Backing;
 pub use processor::UhProcessor;
-use rsi::read_cntfrq_el0;
+use safe_intrinsics::read_cntfrq_el0;
 use hcl::GuestVtl;
 use anyhow::Context as AnyhowContext;
 use bitfield_struct::bitfield;
@@ -1781,14 +1781,6 @@ impl<'a> UhProtoPartition<'a> {
         self,
         late_params: UhLateParams<'_>,
         addrs: Addresses,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_address_start: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_virtual_address_start: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_address_start_command: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_virtual_address_start_command: u64,
         
     ) -> Result<(UhPartition, Vec<UhProcessorBox>), Error> {
         
