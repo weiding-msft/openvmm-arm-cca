@@ -144,20 +144,3 @@ pub enum CcaMemPermIndex {
 //     // because it doesn't have access to the low-level type.
 //     Ok(())
 // }
-
-/// Read the CNTFRQ_EL0 system register, which contains the frequency of the
-/// system timer in Hz. This is used to determine the frequency of the
-/// system timer for the current execution level (EL0).
-#[inline]
-pub fn read_cntfrq_el0() -> u64 {
-    let freq: u64;
-    // SAFETY: no safety requirements, just reading an EL0 sysreg
-    unsafe {
-        core::arch::asm!(
-            "mrs {cntfrq}, cntfrq_el0",
-            cntfrq = out(reg) freq,
-            options(nomem, nostack, preserves_flags)
-        );
-    };
-    freq
-}
