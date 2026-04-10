@@ -77,12 +77,12 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        self.wnr().as_bytes() != 0
+        self.wnr() != 0
     }
 
     pub fn is_read(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        self.wnr().as_bytes() == 0
+        self.wnr() == 0
     }
 
     pub fn srt(&self) -> u8 {
