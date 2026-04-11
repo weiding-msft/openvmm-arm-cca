@@ -195,20 +195,6 @@ impl IntoPipeline for CcaFvpCli {
                 FlowArch::host(backend_hint),
                 "cca-fvp: shrinkwrap build",
             )
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_versions::Request::Init)
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_hvlite_reposource::Params {
-                hvlite_repo_source: openvmm_repo.clone(),
-            })
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_common::Params {
-                local_only: Some(flowey_lib_hvlite::_jobs::cfg_common::LocalOnlyParams {
-                    interactive: true,
-                    auto_install: install_missing_deps,
-                    ignore_rust_version: true,
-                }),
-                verbose: ReadVar::from_static(verbose),
-                locked: false,
-                deny_warnings: false,
-            })
             .dep_on(|ctx| flowey_lib_hvlite::_jobs::local_shrinkwrap_build::Params {
                 out_dir: dir.clone(),
                 shrinkwrap_dir: shrinkwrap_dir.clone(),
@@ -226,20 +212,6 @@ impl IntoPipeline for CcaFvpCli {
                 FlowArch::host(backend_hint),
                 "cca-fvp: shrinkwrap run",
             )
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_versions::Request::Init)
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_hvlite_reposource::Params {
-                hvlite_repo_source: openvmm_repo.clone(),
-            })
-            .dep_on(|_| flowey_lib_hvlite::_jobs::cfg_common::Params {
-                local_only: Some(flowey_lib_hvlite::_jobs::cfg_common::LocalOnlyParams {
-                    interactive: true,
-                    auto_install: install_missing_deps,
-                    ignore_rust_version: true,
-                }),
-                verbose: ReadVar::from_static(verbose),
-                locked: false,
-                deny_warnings: false,
-            })
             .dep_on(|ctx| flowey_lib_hvlite::_jobs::local_shrinkwrap_run::Params {
                 out_dir: dir.clone(),
                 shrinkwrap_dir: shrinkwrap_dir.clone(),

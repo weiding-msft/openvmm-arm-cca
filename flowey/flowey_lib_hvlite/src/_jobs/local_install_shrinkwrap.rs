@@ -50,8 +50,10 @@ flowey_request! {
 new_simple_flow_node!(struct Node);
 
 fn is_distro_package_installed(rt: &RustRuntimeServices<'_>, pkg: &str) -> bool {
-    let output = flowey::shell_cmd!(rt, "dpkg -s {pkg}").output();
-    output.unwrap().status.success()
+    match flowey::shell_cmd!(rt, "dpkg -s {pkg}").output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
 }
 
 ///clone or update a git repository
@@ -285,6 +287,11 @@ impl SimpleFlowNode for Node {
                     "telnet",
                     "docker.io",
                     "gcc-aarch64-linux-gnu",
+                    "flex",  // flex and bison are needed when building linux kernel kconfig parser
+                    "bison",
+                    "libssl-dev",
+                    "python3-venv",
+                    "python3-pip",
                 ];
 
                 let mut missing_packages = Vec::new();
@@ -322,7 +329,7 @@ impl SimpleFlowNode for Node {
                 let output = String::from_utf8(output.stdout)?;
                 let is_member = output.split_whitespace().any(|g| g == group_name);
                 if !is_member {
-                    anyhow::bail!("Current user does NOT belong to the '{group_name}' group, please add it using 'sudo usermod -aG docker $USER'");
+                    anyhow::bail!("Current user does NOT belong to the '{group_name}' group, please add it using 'sudo usermod -aG docker $USER', and restart the shell!");
                 }
 
                 // Create parent dir
