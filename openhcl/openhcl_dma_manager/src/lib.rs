@@ -122,7 +122,7 @@ pub struct OpenhclDmaManager {
 }
 
 /// The required VTL permissions on DMA allocations.
-#[derive(Inspect)]
+#[derive(Inspect, Debug)]
 pub enum LowerVtlPermissionPolicy {
     /// No specific permission constraints are required.
     Any,
@@ -131,7 +131,7 @@ pub enum LowerVtlPermissionPolicy {
 }
 
 /// The CVM page visibility required for DMA allocations.
-#[derive(Copy, Clone, Inspect)]
+#[derive(Copy, Clone, Inspect, Debug)]
 pub enum AllocationVisibility {
     /// Allocations must be shared with the host (aka host visible).
     Shared,
