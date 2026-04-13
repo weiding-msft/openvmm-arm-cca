@@ -138,7 +138,8 @@ impl IntoPipeline for CcaFvpCli {
         };
 
         let btvar = if btvar.is_empty() {
-            vec!["GUEST_ROOTFS=${artifact:BUILDROOT}".to_string()]
+            vec!["GUEST_ROOTFS=${artifact:BUILDROOT}".to_string(),
+                 "TFA_REVISION=8dae0862c502e08568a61a1050091fa9357f1240".to_string()]
         } else {
             btvar
         };
