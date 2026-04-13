@@ -240,15 +240,14 @@ where
         )
     };
 
-    // During the second pass, read in each section pointed to by the program headers,
-    // and import into the guest memory.
-    for phdr in phdrs {
-        if phdr.p_type.get(LE) != elf::PT_LOAD {
-            continue;
-        }
+    // Drop the reader to release the borrow on kernel_image.
+    drop(reader);
 
-        let p_paddr = phdr.p_paddr.get(LE);
-        let mem_offset = p_paddr
+    // During the second pass, import each segment.
+    let mut buf = ChunkBuf::new();
+    for seg in &segments {
+        let mem_offset = seg
+            .p_paddr
             .checked_add(load_offset)
             .ok_or(Error::LoadOffsetOverflow {
                 load_offset,
@@ -268,29 +267,21 @@ where
             });
         }
 
-        let page_mask = HV_PAGE_SIZE - 1;
-
-        let filesz = phdr.p_filesz.get(LE);
-        let mut v = vec![0; ((mem_offset & page_mask) + filesz) as usize];
-        if filesz != 0 {
-            let v_start_offset = (mem_offset & page_mask) as usize;
-            let read_length = (v.len() - v_start_offset) as u64;
-            v[v_start_offset..].copy_from_slice(
-                reader
-                    .read_bytes_at(phdr.p_offset.get(LE), read_length)
-                    .map_err(|_| Error::ReadKernelImage)?,
-            );
+        if seg.p_memsz > 0 {
+            buf.import_file_region(
+                importer,
+                ImportFileRegion {
+                    file: kernel_image,
+                    file_offset: seg.p_offset,
+                    file_length: seg.p_filesz,
+                    gpa: mem_offset,
+                    memory_length: seg.p_memsz,
+                    acceptance,
+                    tag,
+                },
+            )
+            .map_err(Error::ImportFileRegion)?;
         }
-
-        let page_base = mem_offset / HV_PAGE_SIZE;
-        let page_count =
-            ((mem_offset & page_mask) + phdr.p_memsz.get(LE) + page_mask) / HV_PAGE_SIZE;
-        if page_count > 0 {
-            importer
-                .import_pages(page_base, page_count, tag, acceptance, &v)
-                .map_err(Error::ImportPages)?;
-        }
-
     }
 
     Ok(LoadInfo {

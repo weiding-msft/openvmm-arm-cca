@@ -180,6 +180,7 @@ impl IntoPipeline for CcaFvpCli {
                 verbose: ReadVar::from_static(verbose),
                 locked: false,
                 deny_warnings: false,
+                no_incremental: false,
             })
             .dep_on(|ctx| flowey_lib_hvlite::_jobs::local_install_shrinkwrap::Params {
                 out_dir: dir.clone(),

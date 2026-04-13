@@ -68,7 +68,7 @@ impl IntoPipeline for OpenvmmPipelines {
                 OpenvmmPipelinesCi::BuildDocs(cmd) => cmd.into_pipeline(pipeline_hint),
             },
             OpenvmmPipelines::RestorePackages(cmd) => cmd.into_pipeline(pipeline_hint),
-            OpenvmmPipelines::VmmTests(cmd) => cmd.into_pipeline(pipeline_hint),
+            OpenvmmPipelines::VmmTestsRun(cmd) => cmd.into_pipeline(pipeline_hint),
             OpenvmmPipelines::CcaFvp(cmd) => cmd.into_pipeline(pipeline_hint),
         }
     }

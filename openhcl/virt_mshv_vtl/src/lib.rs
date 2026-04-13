@@ -1971,15 +1971,9 @@ impl<'a> UhProtoPartition<'a> {
 
         #[cfg(guest_arch = "aarch64")]
         let caps = virt::aarch64::Aarch64PartitionCapabilities {
-<<<<<<< HEAD
-            // TODO: query aarch32 support from the hypervisor.
+            vendor: Vendor([0; 12]),
             supports_aarch32_el0: false,
         };
-=======
-                vendor: Vendor([0; 12]),
-            };
-
->>>>>>> a9d99a50 (arm-cca: integrate CCA support across HCL, VTL, and VMM)
 
         #[cfg(guest_arch = "x86_64")]
         let cpuid = UhPartition::construct_cpuid_results(
@@ -2079,10 +2073,8 @@ impl<'a> UhProtoPartition<'a> {
             device_vector_table: RwLock::new(IrrBitmap::new(Default::default())),
             intercept_debug_exceptions: params.intercept_debug_exceptions,
             vmbus_relay: late_params.vmbus_relay,
-            shared_addr_start: shared_address_start,
-            shared_virtual_addr_start: shared_virtual_address_start,
-            shared_addr_start_command: shared_address_start_command,
-            shared_virtual_addr_start_command: shared_virtual_address_start_command,
+            addresses: addrs,
+            synic_ports: Default::default(),
         });
 
         if cfg!(guest_arch = "x86_64") {
@@ -2239,7 +2231,7 @@ impl UhPartitionInner {
                     Some(new_perms),
                     &mut CcaBacked::tlb_flush_lock_access(
                         None,
-                        self.inner.as_ref(),
+                        self,
                         cca_backed_shared,
                     ),
                 )
@@ -2287,7 +2279,7 @@ impl UhPartitionInner {
                     gpn,
                     &mut CcaBacked::tlb_flush_lock_access(
                         None,
-                        self.inner.as_ref(),
+                        self,
                         cca_backed_shared,
                     )
                 )
