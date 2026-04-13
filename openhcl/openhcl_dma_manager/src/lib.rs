@@ -204,8 +204,8 @@ impl DmaManagerInner {
             } = &params;
 
             println!("Device name: {}", device_name);
-            println!("Lower VTL policy {}", lower_vtl_policy);
-            println!("allocation visibility {}", allocation_visibility);
+            println!("Lower VTL policy {:?}", lower_vtl_policy);
+            println!("allocation visibility {:?}", allocation_visibility);
             println!("persistent allocation {}", persistent_allocations);
 
             struct ClientCreation<'a> {
