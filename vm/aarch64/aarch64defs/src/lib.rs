@@ -76,7 +76,6 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        println!("iss: {}", self.0);
         print!("is write: {}", (self.0 & (1 << 6)));
         (self.0 & (1 << 6)) != 0
     }
@@ -89,6 +88,7 @@ impl EsrEl2 {
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
+            println!("iss: {}", self.0);
             println!("srt: {}", ((self.iss() & (0x1f << 16)) >> 16) as u8);
             ((self.iss() & (0x1f << 16)) >> 16) as u8
         } else {
