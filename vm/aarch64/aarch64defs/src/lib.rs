@@ -5,7 +5,7 @@
 
 #![expect(missing_docs)]
 #![forbid(unsafe_code)]
-#![no_std]
+// #![no_std]
 
 pub mod gic;
 pub mod smccc;
@@ -17,6 +17,8 @@ use zerocopy::FromBytes;
 use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
+
+use std::println;
 
 /// Aarch64 SPSR_EL2 register when in 64-bit mode. Usually called CPSR by
 /// hypervisors.
@@ -74,6 +76,7 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
+        print!("is write: {}", self.wnr());
         (self.0 & (1 << 6)) != 0
     }
 
@@ -85,6 +88,7 @@ impl EsrEl2 {
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
+            println!("srt: {}", ((self.iss() & (0x1f << 16)) >> 16) as u8);
             ((self.iss() & (0x1f << 16)) >> 16) as u8
         } else {
             0
