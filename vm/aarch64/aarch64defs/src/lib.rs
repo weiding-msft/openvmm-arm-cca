@@ -5,7 +5,7 @@
 
 #![expect(missing_docs)]
 #![forbid(unsafe_code)]
-#![no_std]
+// #![no_std]
 
 pub mod gic;
 pub mod smccc;
@@ -17,6 +17,8 @@ use zerocopy::FromBytes;
 use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
+
+use std::println;
 
 /// Aarch64 SPSR_EL2 register when in 64-bit mode. Usually called CPSR by
 /// hypervisors.
