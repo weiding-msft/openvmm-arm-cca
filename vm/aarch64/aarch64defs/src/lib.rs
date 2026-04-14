@@ -63,7 +63,7 @@ pub struct Cpsr64 {
 #[derive(IntoBytes, Immutable, KnownLayout, FromBytes)]
 pub struct EsrEl2 {
     #[bits(6)]
-    pub lower_iss: u8,
+    pub lower_iss: u32,
     pub wnr: bool,
     #[bits(18)]
     pub mid: u32,
