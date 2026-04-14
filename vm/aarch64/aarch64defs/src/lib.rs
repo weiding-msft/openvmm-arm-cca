@@ -79,7 +79,7 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        println!("is write {}", self.wnr);
+        println!("is write {}", self.wnr());
         self.wnr() != false
     }
 
