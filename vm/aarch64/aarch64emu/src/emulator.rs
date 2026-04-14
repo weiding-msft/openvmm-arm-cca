@@ -184,6 +184,7 @@ impl<'a, T: Cpu> Emulator<'a, T> {
         }
 
         let temp_iss: u32 = (syndrome.lower_iss() as u32) | ((syndrome.wnr() as u32) << 6) | ((syndrome.mid() as u32) << 7);
+        println!("symdrome combination ISS: {}", temp_iss);
         let iss = aarch64defs::IssDataAbort::from(temp_iss);
         if !iss.isv() {
             return Ok(false);
