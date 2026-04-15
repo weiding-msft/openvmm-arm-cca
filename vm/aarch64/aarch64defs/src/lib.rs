@@ -100,7 +100,7 @@ impl EsrEl2 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
             println!("srt {}", ((self.mid() >> 8) & 0x1f) as u8);
-            ((self.mid() >> 8) & 0x1f) as u8
+            ((self.mid() >> 9) & 0x1f) as u8
         } else {
             0
         }
