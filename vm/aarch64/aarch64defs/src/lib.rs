@@ -73,7 +73,7 @@ pub struct EsrEl2 {
     #[bits(5)]
     pub iss2: u8,
     #[bits(27)]
-    pub _rsvd: u32,
+    pub rsvd: u32,
 }
 
 impl EsrEl2 {
