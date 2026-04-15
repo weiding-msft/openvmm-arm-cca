@@ -73,7 +73,7 @@ pub struct EsrEl2 {
     #[bits(5)]
     pub iss2: u8,
     #[bits(27)]
-    _rsvd: u32,
+    pub _rsvd: u32,
 }
 
 impl EsrEl2 {
@@ -87,7 +87,7 @@ impl EsrEl2 {
         println!("il: {}", self.il());
         println!("ec: {}", self.ec());
         println!("iss2: {}", self.iss2());
-        print!("rsvd: {}", self._rsvd);
+        print!("rsvd: {}", self._rsvd());
         self.wnr() != false
     }
 
