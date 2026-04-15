@@ -366,15 +366,17 @@ impl From<IssInstructionAbort> for EsrEl2 {
     fn from(instruction_code: IssInstructionAbort) -> Self {
         let val: u32 = instruction_code.into();
         let iss = val & 0x07ff_ffff;
-        println!("with wnr {}",((iss >> 6) & 1) != 0);
-        println!("with lower_iss {}", ((iss & 0x3f) as u32));
-        println!("with mid: {}", ((iss >> 7) & 0x7ffff) as u32);
-        println!("with iss2 {}", (val >> 27) as u8);
+
         EsrEl2::new()
             .with_ec(ExceptionClass::INSTRUCTION_ABORT.0)
-            .with_lower_iss((iss & 0x3f) as u32)
+            .with_lower_iss((iss & 0x3f) as u8)
             .with_wnr(((iss >> 6) & 1) != 0)
-            .with_mid(((iss >> 7) & 0x7ffff) as u32)
+            .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
+            .with_srt(((iss >> 16) & 0x1F) as u8)
+            .with_a(((iss >> 21) & 1) != 0)
+            .with_b((iss >> 22) & 1 != 0)
+            .with_c((iss >> 23) & 1 != 0)
+            .with_d((iss >> 24) & 1 != 0)
             .with_iss2((val >> 27) as u8)
     }
 }
