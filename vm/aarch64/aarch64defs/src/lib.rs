@@ -84,6 +84,10 @@ impl EsrEl2 {
         println!("mid: {}", self.mid());
         println!("combination to iss: {}", temp_iss);
         println!("is write {}", self.wnr());
+        println!("il: {}", self.il());
+        println!("ec: {}", self.ec());
+        println!("iss2: {}", self.iss2());
+        print!("rsvd: {}", self._rsvd());
         self.wnr() != false
     }
 
