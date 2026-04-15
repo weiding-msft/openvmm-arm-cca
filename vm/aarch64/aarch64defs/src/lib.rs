@@ -68,7 +68,7 @@ pub struct EsrEl2 {
     #[bits(9)]
     pub mid_iss: u16,
     #[bits(5)]
-    pub srt: u8,
+    pub b_srt: u8,
     pub a: bool,
     pub b: bool,
     pub c: bool,
@@ -104,8 +104,8 @@ impl EsrEl2 {
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
-            println!("srt {}", ((self.srt() & 0x1f) as u8));
-            (self.srt() & 0x1f) as u8
+            println!("srt {}", ((self.b_srt() & 0x1f) as u8));
+            (self.b_srt() & 0x1f) as u8
         } else {
             0
         }
@@ -270,7 +270,7 @@ impl From<IssDataAbort> for EsrEl2 {
             .with_lower_iss((iss & 0x3f) as u8)
             .with_wnr(((iss >> 6) & 1) != 0)
             .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
-            .with_srt(((iss >> 16) & 0x1F) as u8)
+            .with_b_srt(((iss >> 16) & 0x1F) as u8)
             .with_a(((iss >> 21) & 1) != 0)
             .with_b((iss >> 22) & 1 != 0)
             .with_c((iss >> 23) & 1 != 0)
@@ -372,7 +372,7 @@ impl From<IssInstructionAbort> for EsrEl2 {
             .with_lower_iss((iss & 0x3f) as u8)
             .with_wnr(((iss >> 6) & 1) != 0)
             .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
-            .with_srt(((iss >> 16) & 0x1F) as u8)
+            .with_b_srt(((iss >> 16) & 0x1F) as u8)
             .with_a(((iss >> 21) & 1) != 0)
             .with_b((iss >> 22) & 1 != 0)
             .with_c((iss >> 23) & 1 != 0)
