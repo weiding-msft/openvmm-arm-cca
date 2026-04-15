@@ -267,10 +267,10 @@ impl From<IssDataAbort> for EsrEl2 {
         let iss = val & 0x07ff_ffff;
         EsrEl2::new()
             .with_ec(ExceptionClass::DATA_ABORT.0)
-            .with_lower_iss((iss & 0x3f) as u32)
+            .with_lower_iss((iss & 0x3f) as u8)
             .with_wnr(((iss >> 6) & 1) != 0)
-            .with_mid_iss(((iss >> 7) & 0x1ff) as u32)
-            .with_srt(((iss >> 16) & 0x1F) as u32)
+            .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
+            .with_srt(((iss >> 16) & 0x1F) as u8)
             .with_a(((iss >> 21) & 1) != 0)
             .with_b((iss >> 22) & 1 != 0)
             .with_c((iss >> 23) & 1 != 0)
