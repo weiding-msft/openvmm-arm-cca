@@ -77,6 +77,10 @@ impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
         print!("is write: {}", (self.0 & (1 << 6)));
+        println!("il: {}", self.il());
+        println!("ec: {}", self.ec());
+        println!("iss2: {}", self.iss2());
+        println!("rsvd: {}", self._rsvd());
         (self.0 & (1 << 6)) != 0
     }
 
