@@ -63,17 +63,23 @@ pub struct Cpsr64 {
 #[derive(IntoBytes, Immutable, KnownLayout, FromBytes)]
 pub struct EsrEl2 {
     #[bits(6)]
-    pub lower_iss: u32,
+    pub lower_iss: u8,
     pub wnr: bool,
-    #[bits(18)]
-    pub mid: u32,
+    #[bits(9)]
+    pub mid_iss: u16,
+    #[bits(5)]
+    pub srt: u8,
+    pub a: bool,
+    pub b: bool,
+    pub c: bool,
+    pub d: bool,
     pub il: bool,
     #[bits(6)]
     pub ec: u8,
     #[bits(5)]
     pub iss2: u8,
     #[bits(27)]
-    pub rsvd: u32,
+    _rsvd: u32,
 }
 
 impl EsrEl2 {
@@ -87,7 +93,6 @@ impl EsrEl2 {
         println!("il: {}", self.il());
         println!("ec: {}", self.ec());
         println!("iss2: {}", self.iss2());
-        print!("rsvd: {}", self.rsvd());
         self.wnr() != false
     }
 
@@ -99,8 +104,8 @@ impl EsrEl2 {
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
-            println!("srt {}", ((self.mid() >> 8) & 0x1f) as u8);
-            ((self.mid() >> 9) & 0x1f) as u8
+            println!("srt {}", ((self.srt() & 0x1f) as u8));
+            (self.srt() & 0x1f) as u8
         } else {
             0
         }
@@ -264,7 +269,12 @@ impl From<IssDataAbort> for EsrEl2 {
             .with_ec(ExceptionClass::DATA_ABORT.0)
             .with_lower_iss((iss & 0x3f) as u32)
             .with_wnr(((iss >> 6) & 1) != 0)
-            .with_mid(((iss >> 7) & 0x7ffff) as u32)
+            .with_mid_iss(((iss >> 7) & 0x1ff) as u32)
+            .with_srt(((iss >> 16) & 0x1F) as u32)
+            .with_a(((iss >> 21) & 1) != 0)
+            .with_b((iss >> 22) & 1 != 0)
+            .with_c((iss >> 23) & 1 != 0)
+            .with_d((iss >> 24) & 1 != 0)
             .with_iss2((val >> 27) as u8)
     }
 }
