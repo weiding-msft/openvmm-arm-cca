@@ -87,7 +87,7 @@ impl EsrEl2 {
         println!("il: {}", self.il());
         println!("ec: {}", self.ec());
         println!("iss2: {}", self.iss2());
-        print!("rsvd: {}", self._rsvd());
+        print!("rsvd: {}", self.rsvd());
         self.wnr() != false
     }
 
