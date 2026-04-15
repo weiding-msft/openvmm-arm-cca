@@ -87,7 +87,7 @@ impl EsrEl2 {
         // The WNR bit is set for writes, not reads.
         let temp_iss: u32 = (self.lower_iss() as u32) | ((self.wnr() as u32) << 6) | ((self.mid() as u32) << 7);
         println!("lower_iss: {}", self.lower_iss());
-        println!("mid: {}", self.mid());
+        println!("mid: {}", self.mid_iss());
         println!("combination to iss: {}", temp_iss);
         println!("is write {}", self.wnr());
         println!("il: {}", self.il());
