@@ -255,14 +255,6 @@ struct UhPartitionInner {
     vmbus_relay: bool,
     addresses: Addresses,
     synic_ports: virt::synic::SynicPortMap,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_addr_start: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_virtual_addr_start: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_addr_start_command: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_virtual_addr_start_command: u64,
 }
 
 #[derive(Inspect)]
@@ -2218,7 +2210,7 @@ impl UhPartitionInner {
                     Some(new_perms),
                     &mut CcaBacked::tlb_flush_lock_access(
                         None,
-                        self.inner.as_ref(),
+                        self,
                         cca_backed_shared,
                     ),
                 )
