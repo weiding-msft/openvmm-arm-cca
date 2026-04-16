@@ -30,6 +30,7 @@ use virt::{VpHaltReason, aarch64::vp::AccessVpState};
 use virt_support_aarch64emu::translate::TranslationRegisters;
 use crate::processor::InterceptMessageState;
 use hvdef::HvRegisterCrInterceptControl;
+use zerocopy::FromZeros;
 
 use super::{BackingSharedParams, UhProcessor, private::BackingPrivate, vp_state::UhVpStateAccess};
  
@@ -637,7 +638,7 @@ impl HardwareIsolatedBacking for CcaBacked {
             instruction_length_and_cr8: 0,
             cpl: 0,
             efer_lma: false,
-            cs: hvdef::HvX64SegmentRegister::default_arm64(),
+            cs: hvdef::HvX64SegmentRegister::new_zeroed(),
             rip: 0,
             rflags: 0,
             rax: 0,

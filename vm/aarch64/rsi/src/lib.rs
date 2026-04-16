@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 //! Arm CCA specific definitions, including for the Realm Service Interface (RSI).
-#![allow(unsafe_code)]
+#![expect(unsafe_code)]
 
 // TODO: CCA: A lot of the code in this module depends on who gets to package the RSI calls.
 // If OpenVMM is the one that packages the RSI calls, then this module should be
@@ -144,20 +144,3 @@ pub enum CcaMemPermIndex {
 //     // because it doesn't have access to the low-level type.
 //     Ok(())
 // }
-
-/// Read the CNTFRQ_EL0 system register, which contains the frequency of the
-/// system timer in Hz. This is used to determine the frequency of the
-/// system timer for the current execution level (EL0).
-#[inline]
-pub fn read_cntfrq_el0() -> u64 {
-    let freq: u64;
-    // SAFETY: no safety requirements, just reading an EL0 sysreg
-    unsafe {
-        core::arch::asm!(
-            "mrs {cntfrq}, cntfrq_el0",
-            cntfrq = out(reg) freq,
-            options(nomem, nostack, preserves_flags)
-        );
-    };
-    freq
-}
