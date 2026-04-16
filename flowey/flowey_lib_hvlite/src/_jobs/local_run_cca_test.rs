@@ -114,7 +114,23 @@ impl SimpleFlowNode for Node {
                 let simple_tmk_output = rt.read(simple_tmk_output);
                 let simple_tmk_bin = simple_tmk_output.bin;
 
-                flowey::shell_cmd!(rt, "{e2fsck_bin} -fp {rootfs_file}").run()?;
+                // fsck has the following exit_code, if we start the FVP and
+                // then kill it by force, the rootfs will left in 'dirty' status,
+                // but fsck will just clean it and finish with exit code 1, this
+                // is not an error.
+                //
+                //   0  No errors
+                //   1  Errors found and corrected (common after journal replay)
+                //   (full exit code see https://man7.org/linux/man-pages/man8/e2fsck.8.html)
+                let fsck_cmd = format!(
+                    r#"
+                    {e2fsck_bin} -fp {rootfs_file} || rc=$?
+                    [ "${{rc:-0}}" -le 1 ] || exit "$rc"
+                    "#,
+                    e2fsck_bin = e2fsck_bin.display(),
+                    rootfs_file = rootfs_file.display(),
+                );
+                flowey::shell_cmd!(rt, "bash -c {fsck_cmd}").run()?;
                 log::info!("e2fsck finished");
 
                 flowey::shell_cmd!(rt, "{resize2fs_bin} {rootfs_file} 1024M").run()?;
