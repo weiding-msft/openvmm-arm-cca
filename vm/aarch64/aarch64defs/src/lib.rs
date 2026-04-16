@@ -5,7 +5,7 @@
 
 #![expect(missing_docs)]
 #![forbid(unsafe_code)]
-#![no_std]
+// #![no_std]
 
 pub mod gic;
 pub mod smccc;
@@ -17,6 +17,8 @@ use zerocopy::FromBytes;
 use zerocopy::Immutable;
 use zerocopy::IntoBytes;
 use zerocopy::KnownLayout;
+
+use std::println;
 
 /// Aarch64 SPSR_EL2 register when in 64-bit mode. Usually called CPSR by
 /// hypervisors.
@@ -60,8 +62,17 @@ pub struct Cpsr64 {
 #[bitfield(u64)]
 #[derive(IntoBytes, Immutable, KnownLayout, FromBytes)]
 pub struct EsrEl2 {
-    #[bits(25)]
-    pub iss: u32,
+    #[bits(6)]
+    pub lower_iss: u8,
+    pub wnr: bool,
+    #[bits(9)]
+    pub mid_iss: u16,
+    #[bits(5)]
+    pub b_srt: u8,
+    pub a: bool,
+    pub b: bool,
+    pub c: bool,
+    pub d: bool,
     pub il: bool,
     #[bits(6)]
     pub ec: u8,
@@ -74,18 +85,18 @@ pub struct EsrEl2 {
 impl EsrEl2 {
     pub fn is_write(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        (self.0 & (1 << 6)) != 0
+        self.wnr() != false
     }
 
     pub fn is_read(&self) -> bool {
         // The WNR bit is set for writes, not reads.
-        (self.0 & (1 << 6)) == 0
+        self.wnr() == false
     }
 
     pub fn srt(&self) -> u8 {
         // The SRT field is only valid for data aborts.
         if (ExceptionClass::DATA_ABORT_LOWER.0..ExceptionClass::DATA_ABORT.0).contains(&self.ec()) {
-            ((self.iss() & (0x1f << 16)) >> 16) as u8
+            self.b_srt()
         } else {
             0
         }
@@ -244,9 +255,17 @@ pub struct IssDataAbort {
 impl From<IssDataAbort> for EsrEl2 {
     fn from(abort_code: IssDataAbort) -> Self {
         let val: u32 = abort_code.into();
+        let iss = val & 0x07ff_ffff;
         EsrEl2::new()
             .with_ec(ExceptionClass::DATA_ABORT.0)
-            .with_iss(val & 0x07ffffff)
+            .with_lower_iss((iss & 0x3f) as u8)
+            .with_wnr(((iss >> 6) & 1) != 0)
+            .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
+            .with_b_srt(((iss >> 16) & 0x1F) as u8)
+            .with_a(((iss >> 21) & 1) != 0)
+            .with_b((iss >> 22) & 1 != 0)
+            .with_c((iss >> 23) & 1 != 0)
+            .with_d((iss >> 24) & 1 != 0)
             .with_iss2((val >> 27) as u8)
     }
 }
@@ -337,9 +356,18 @@ pub struct IssInstructionAbort {
 impl From<IssInstructionAbort> for EsrEl2 {
     fn from(instruction_code: IssInstructionAbort) -> Self {
         let val: u32 = instruction_code.into();
+        let iss = val & 0x07ff_ffff;
+
         EsrEl2::new()
             .with_ec(ExceptionClass::INSTRUCTION_ABORT.0)
-            .with_iss(val & 0x07ffffff)
+            .with_lower_iss((iss & 0x3f) as u8)
+            .with_wnr(((iss >> 6) & 1) != 0)
+            .with_mid_iss(((iss >> 7) & 0x1ff) as u16)
+            .with_b_srt(((iss >> 16) & 0x1F) as u8)
+            .with_a(((iss >> 21) & 1) != 0)
+            .with_b((iss >> 22) & 1 != 0)
+            .with_c((iss >> 23) & 1 != 0)
+            .with_d((iss >> 24) & 1 != 0)
             .with_iss2((val >> 27) as u8)
     }
 }

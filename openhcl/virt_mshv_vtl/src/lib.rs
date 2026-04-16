@@ -31,31 +31,25 @@ cfg_if::cfg_if!(
         /// Bitarray type for representing IRR bits in a x86-64 APIC
         /// Each bit represent the 256 possible vectors.
         type IrrBitmap = BitArray<[u32; 8], Lsb0>;
+        use virt::X86Partition;
+        use virt_support_apic::LocalApicSet;
     } else if #[cfg(guest_arch = "aarch64")] {
         pub use crate::processor::mshv::arm64::HypervisorBackedArm64 as HypervisorBacked;
         pub use processor::cca::CcaBacked;
         use processor::cca::CcaBackedShared;
         use crate::processor::mshv::arm64::HypervisorBackedArm64Shared as HypervisorBackedShared;
+        use aarch64defs::Vendor;
+        use hcl::ioctl::cca::Addresses;
+        use hcl::ioctl::cca::RsiRealmConfig;
     }
 );
 
 mod processor;
-#[cfg(guest_arch = "aarch64")]
-use aarch64defs::Vendor;
-#[cfg(not(guest_arch = "x86_64"))]
-use hcl::GuestVtl;
-#[cfg(guest_arch = "aarch64")]
-use hcl::ioctl::cca::Addresses;
-// use hcl::ioctl::IsolationType;
-#[cfg(guest_arch = "aarch64")]
-use hcl::ioctl::cca::RsiRealmConfig;
-#[cfg(guest_arch = "x86_64")]
-use hcl::ioctl::cca::RsiRealmConfig;
 use hv1_emulator::hv::ProcessorVtlHv;
 pub use processor::Backing;
 pub use processor::UhProcessor;
-use rsi::read_cntfrq_el0;
-
+use safe_intrinsics::read_cntfrq_el0;
+use hcl::GuestVtl;
 use anyhow::Context as AnyhowContext;
 use bitfield_struct::bitfield;
 use bitvec::boxed::BitBox;
@@ -104,8 +98,6 @@ use parking_lot::RwLock;
 use processor::BackingSharedParams;
 use processor::SidecarExitReason;
 use sidecar_client::NewSidecarClientError;
-// #[cfg(not(guest_arch = "x86_64"))]
-// use virt_support_apic::LocalApicSet;
 use std::ops::RangeInclusive;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -121,13 +113,9 @@ use user_driver::DmaClient;
 use virt::IsolationType;
 use virt::PartitionCapabilities;
 use virt::VpIndex;
-#[cfg(guest_arch = "x86_64")]
-use virt::X86Partition;
 use virt::irqcon::IoApicRouting;
 use virt::irqcon::MsiRequest;
 use virt::x86::apic_software_device::ApicSoftwareDevices;
-#[cfg(guest_arch = "x86_64")]
-use virt_support_apic::LocalApicSet;
 use vm_topology::memory::MemoryLayout;
 use vm_topology::processor::ProcessorTopology;
 use vm_topology::processor::TargetVpInfo;
@@ -267,14 +255,6 @@ struct UhPartitionInner {
     vmbus_relay: bool,
     addresses: Addresses,
     synic_ports: virt::synic::SynicPortMap,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_addr_start: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_virtual_addr_start: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_addr_start_command: u64,
-    // #[cfg(guest_arch = "aarch64")]
-    // pub shared_virtual_addr_start_command: u64,
 }
 
 #[derive(Inspect)]
@@ -390,7 +370,7 @@ impl From<EnterMode> for hcl::protocol::EnterMode {
     }
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 #[derive(Inspect)]
 struct GuestVsmVpState {
     /// The pending event that VTL 1 wants to inject into VTL 0. Injected on
@@ -400,7 +380,7 @@ struct GuestVsmVpState {
     reg_intercept: SecureRegisterInterceptState,
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 impl GuestVsmVpState {
     fn new() -> Self {
         GuestVsmVpState {
@@ -478,7 +458,7 @@ impl UhCvmVpState {
     }
 }
 
-#[cfg(guest_arch = "x86_64")]
+// #[cfg(guest_arch = "x86_64")]
 #[derive(Inspect, Default)]
 #[inspect(hex)]
 /// Configuration of VTL 1 registration for intercepts on certain registers
@@ -1745,20 +1725,12 @@ impl<'a> UhProtoPartition<'a> {
             .map_err(Error::GetReg)?;
         
         let guest_vsm_available = {
-            #[cfg(guest_arch = "aarch64")]
-            {
-                Self::check_guest_vsm_support(None, &hcl)?
-            }
-
-            #[cfg(guest_arch = "x86_64")]
-            {
                 let privs = hcl
                     .get_privileges_and_features_info()
                     .map_err(Error::GetReg)?;
 
                 Self::check_guest_vsm_support(Some(privs), &hcl)?
-            }
-        };
+            };
 
         #[cfg(guest_arch = "x86_64")]
         let cpuid = match params.isolation {
@@ -1777,7 +1749,6 @@ impl<'a> UhProtoPartition<'a> {
             }
             .build()
             .map_err(Error::CvmCpuid)?,
-            // TODO: CCA: what do we replace cpuid with?
             IsolationType::Cca | IsolationType::Vbs | IsolationType::None => None,
 
         };
@@ -1814,14 +1785,6 @@ impl<'a> UhProtoPartition<'a> {
         self,
         late_params: UhLateParams<'_>,
         addrs: Addresses,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_address_start: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_virtual_address_start: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_address_start_command: u64,
-        // #[cfg(guest_arch = "aarch64")]
-        // shared_virtual_address_start_command: u64,
         
     ) -> Result<(UhPartition, Vec<UhProcessorBox>), Error> {
         
@@ -2218,6 +2181,22 @@ impl UhPartitionInner {
                     HvMapGpaFlags::new(),
                     Some(new_perms),
                     &mut TdxBacked::tlb_flush_lock_access(None, self, tdx_backed_shared),
+                )
+                .map_err(|e| anyhow::anyhow!(e)),
+            BackingShared::Cca(cca_backed_shared) => cca_backed_shared
+                .cvm
+                .isolated_memory_protector
+                .register_overlay_page(
+                    vtl,
+                    gpn,
+                    GpnSource::Dma,
+                    HvMapGpaFlags::new(),
+                    Some(new_perms),
+                    &mut CcaBacked::tlb_flush_lock_access(
+                        None,
+                        self,
+                        cca_backed_shared,
+                    ),
                 )
                 .map_err(|e| anyhow::anyhow!(e)),
             BackingShared::Cca(cca_backed_shared) => cca_backed_shared

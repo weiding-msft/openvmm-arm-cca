@@ -98,7 +98,7 @@ impl CommonState {
             .context("failed to build processor topology")?;
 
         let ram_size = 0x400000;
-                
+        
         let mut memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         let mut shared_memory_layout = MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         let mut mmemory = None;
