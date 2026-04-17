@@ -92,13 +92,13 @@ impl RunContext<'_> {
         //     isolation,
         // )
         // .expect("failed to create global dma manager");
-        let dma_manager = OpenhclDmaManager::new(
-            &[],
-            &[],
-            vtom.unwrap_or(0),
-            isolation,
-        )
-        .expect("failed to create global dma manager");
+        // let dma_manager = OpenhclDmaManager::new(
+        //     &[],
+        //     &[],
+        //     vtom.unwrap_or(0),
+        //     isolation,
+        // )
+        // .expect("failed to create global dma manager");
         // Needed because if we use the same DMA manager for both below,
         // the shared manager will end up allocating some pages at the start of the address space,
         // which will conflict with the private allocations and erase some of the ELF sections
@@ -116,13 +116,13 @@ impl RunContext<'_> {
         //     isolation,
         // )
         // .expect("failed to create global dma manager");
-        let shared_dma_manager = OpenhclDmaManager::new(
-            &[],
-            &[],
-            vtom.unwrap_or(0),
-            isolation,
-        )
-        .expect("failed to create global dma manager");
+        // let shared_dma_manager = OpenhclDmaManager::new(
+        //     &[],
+        //     &[],
+        //     vtom.unwrap_or(0),
+        //     isolation,
+        // )
+        // .expect("failed to create global dma manager");
 
         let (partition, vps) = p
             .build(UhLateParams {
