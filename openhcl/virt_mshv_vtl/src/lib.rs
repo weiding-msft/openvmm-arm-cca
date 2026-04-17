@@ -1178,11 +1178,6 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
             return Ok(Some(gpa));
         }
 
-        // let block = state
-        //     .private_dma_client
-        //     .allocate_dma_buffer(HV_PAGE_SIZE_USIZE)
-        //     .context("failed to allocate monitor page")?;
-
         let block = if let Some(private_dma_client) = &state.private_dma_client {
             Some(
                 private_dma_client
@@ -1198,8 +1193,7 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
         } else {
             0
         };
-        // *allocated_block = Some(block);
-        println!("in allocate_monitor_page fn");
+        
         *allocated_block = block;
         let gpa = gpn << HV_PAGE_SHIFT;
         let old_gpa = self.monitor_page.set_gpa(Some(gpa));
@@ -1232,7 +1226,6 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
 
         tracing::debug!(gpa, "registered allocated monitor page");
 
-        println!("end of allocate_monitor_page fn");
         Ok(Some(gpa))
     }
 }
