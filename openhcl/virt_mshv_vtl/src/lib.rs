@@ -420,7 +420,7 @@ impl UhCvmVpState {
     ) -> Result<Self, Error> {
 
         println!("before direct_overlay_handle");
-        let direct_overlay_handle: Option<MemoryBlock> = None,
+        let direct_overlay_handle: Option<MemoryBlock> = None;
         if let Some(sdmac) = cvm_partition.shared_dma_client {
             direct_overlay_handle = Some(sdmac
             // .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
@@ -1896,7 +1896,7 @@ impl<'a> UhProtoPartition<'a> {
             late_params
                 .cvm_params
                 .as_ref()
-                .map(|x| x.private_dma_client.as_ref()),
+                .and_then(|x| x.private_dma_client.as_ref()),,
         )
         .map_err(Error::Hcl)?;
 
