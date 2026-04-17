@@ -1193,10 +1193,10 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
             None
         };
 
-        let gpn = let Some(v) = block {
+        let gpn:  = if let Some(v) = block {
             v.pfns()[0]
         } else {
-            false
+            0
         };
         // *allocated_block = Some(block);
         *allocated_block = block;
