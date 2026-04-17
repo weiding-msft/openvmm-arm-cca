@@ -84,6 +84,7 @@ use hvdef::hypercall::HvGuestOsId;
 use hvdef::hypercall::HvInputVtl;
 use hvdef::hypercall::HvInterceptParameters;
 use hvdef::hypercall::HvInterceptType;
+use user_driver::memory::MemoryBlock;
 use std::collections::HashMap;
 use inspect::Inspect;
 use inspect::InspectMut;
@@ -419,11 +420,18 @@ impl UhCvmVpState {
     ) -> Result<Self, Error> {
 
         println!("before direct_overlay_handle");
-        let direct_overlay_handle = cvm_partition
-            .shared_dma_client
+        let direct_overlay_handle: MemoryBlock = MemoryBlock::new();
+        if let Some(sdmac) = cvm_partition.shared_dma_client {
+            direct_overlay_handle = sdmac
             // .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
             .allocate_dma_buffer(HV_PAGE_SIZE_USIZE as usize)
             .map_err(Error::AllocateSharedVisOverlay)?;
+        }
+        // let direct_overlay_handle = cvm_partition
+        //     .shared_dma_client
+        //     // .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
+        //     .allocate_dma_buffer(HV_PAGE_SIZE_USIZE as usize)
+        //     .map_err(Error::AllocateSharedVisOverlay)?;
         println!("after direct_overlay_handle");
 
         #[cfg(guest_arch = "x86_64")]
@@ -507,9 +515,9 @@ struct UhCvmPartitionState {
     /// Guest VSM state.
     guest_vsm: RwLock<GuestVsmState<CvmVtl1State>>,
     /// Dma client for shared visibility pages.
-    shared_dma_client: Arc<dyn DmaClient>,
+    shared_dma_client: Option<Arc<dyn DmaClient>>,
     /// Dma client for private visibility pages.
-    private_dma_client: Arc<dyn DmaClient>,
+    private_dma_client: Option<Arc<dyn DmaClient>>,
     hide_isolation: bool,
     proxy_interrupt_redirect: bool,
 }
@@ -1531,9 +1539,9 @@ pub struct CvmLateParams {
     /// An object to call to change host visibility on guest memory.
     pub isolated_memory_protector: Arc<dyn ProtectIsolatedMemory>,
     /// Dma client for shared visibility pages.
-    pub shared_dma_client: Arc<dyn DmaClient>,
+    pub shared_dma_client: Option<Arc<dyn DmaClient>>,
     /// Allocator for private visibility pages.
-    pub private_dma_client: Arc<dyn DmaClient>,
+    pub private_dma_client: Option<Arc<dyn DmaClient>>,
 }
 
 /// Represents a GPN that is either in guest memory or was allocated by dma_client.

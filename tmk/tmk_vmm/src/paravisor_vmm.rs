@@ -140,18 +140,8 @@ impl RunContext<'_> {
                 cvm_params: Some(virt_mshv_vtl::CvmLateParams {
                     shared_gm: m.cvm_memory().unwrap().shared_gm.clone(),
                     isolated_memory_protector: m.cvm_memory().unwrap().protector.clone(),
-                    shared_dma_client: shared_dma_manager.new_client(DmaClientParameters {
-                        device_name: "partition-shared".into(),
-                        lower_vtl_policy: LowerVtlPermissionPolicy::Any,
-                        allocation_visibility: AllocationVisibility::Private,
-                        persistent_allocations: false,
-                    })?,
-                    private_dma_client: dma_manager.new_client(DmaClientParameters {
-                        device_name: "partition-private".into(),
-                        lower_vtl_policy: LowerVtlPermissionPolicy::Any,
-                        allocation_visibility: AllocationVisibility::Private,
-                        persistent_allocations: false,
-                    })?,
+                    shared_dma_client: None,
+                    private_dma_client: None,
                 }),
                 vmbus_relay: false,
             },
