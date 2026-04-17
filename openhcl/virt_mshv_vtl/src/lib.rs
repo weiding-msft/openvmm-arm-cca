@@ -1178,13 +1178,28 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
             return Ok(Some(gpa));
         }
 
-        let block = state
-            .private_dma_client
-            .allocate_dma_buffer(HV_PAGE_SIZE_USIZE)
-            .context("failed to allocate monitor page")?;
+        // let block = state
+        //     .private_dma_client
+        //     .allocate_dma_buffer(HV_PAGE_SIZE_USIZE)
+        //     .context("failed to allocate monitor page")?;
 
-        let gpn = block.pfns()[0];
-        *allocated_block = Some(block);
+        let block = if let Some(private_dma_client) = &state.private_dma_client {
+            Some(
+                private_dma_client
+                    .allocate_dma_buffer(HV_PAGE_SIZE_USIZE)
+                    .map_err(Error::AllocateSharedVisOverlay)?
+            )
+        } else {
+            None
+        };
+
+        let gpn = let Some(v) = block {
+            v.pfns()[0]
+        } else {
+            false
+        };
+        // *allocated_block = Some(block);
+        *allocated_block = block;
         let gpa = gpn << HV_PAGE_SHIFT;
         let old_gpa = self.monitor_page.set_gpa(Some(gpa));
         if let Some(old_gpa) = old_gpa {
