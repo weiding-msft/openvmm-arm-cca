@@ -1199,6 +1199,7 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
             0
         };
         // *allocated_block = Some(block);
+        println!("in allocate_monitor_page fn");
         *allocated_block = block;
         let gpa = gpn << HV_PAGE_SHIFT;
         let old_gpa = self.monitor_page.set_gpa(Some(gpa));
@@ -1231,6 +1232,7 @@ impl virt::synic::SynicMonitor for UhPartitionInner {
 
         tracing::debug!(gpa, "registered allocated monitor page");
 
+        println!("end of allocate_monitor_page fn");
         Ok(Some(gpa))
     }
 }
