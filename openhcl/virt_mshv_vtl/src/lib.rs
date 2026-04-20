@@ -419,12 +419,11 @@ impl UhCvmVpState {
         _overlay_pages_required: usize,
     ) -> Result<Self, Error> {
 
-        println!("before direct_overlay_handle");
         let mut direct_overlay_handle: Option<MemoryBlock> = None;
         if let Some(sdmac) = &cvm_partition.shared_dma_client {
             direct_overlay_handle = Some(sdmac
-            // .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
-            .allocate_dma_buffer(HV_PAGE_SIZE_USIZE as usize)
+            .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
+            // .allocate_dma_buffer(HV_PAGE_SIZE_USIZE as usize)
             .map_err(Error::AllocateSharedVisOverlay)?);
         }
         // let direct_overlay_handle = cvm_partition
@@ -432,7 +431,6 @@ impl UhCvmVpState {
         //     // .allocate_dma_buffer(overlay_pages_required * HV_PAGE_SIZE as usize)
         //     .allocate_dma_buffer(HV_PAGE_SIZE_USIZE as usize)
         //     .map_err(Error::AllocateSharedVisOverlay)?;
-        println!("after direct_overlay_handle");
 
         #[cfg(guest_arch = "x86_64")]
         let lapics = VtlArray::from_fn(|vtl| {
