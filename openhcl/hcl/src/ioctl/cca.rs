@@ -4,6 +4,8 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::FileExt;
 
  use crate::Inspect;
+#[cfg(guest_arch = "aarch64")]
+use crate::ioctl::register::SetRegError;
 use super::Hcl;
 use super::HclVp;
 use super::MshvVtl;
@@ -30,6 +32,7 @@ use hvdef::HvRegisterValue;
 use sidecar_client::SidecarVp;
 
 use crate::mapped_page::MappedPage;
+use crate::ioctl::register;
 use std::fs::OpenOptions;
 use std::io;
 
@@ -193,10 +196,9 @@ impl ProcessorRunner<'_, Cca> {
         vtl: GuestVtl,
         name: SystemReg,
         value: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<(), register::SetRegError> {
         self.hcl
             .rsi_sysreg_write(vtl, u32::from(name.0) as u64, value)
-            .map_err(Error::SetRegisters)
     }
 
     /// Update the address of the `plane_run` structure in `mshv_vtl_run.context`.
@@ -436,7 +438,7 @@ impl MshvVtl {
         vtl: GuestVtl,
         sysreg: u64,
         value: u64,
-    ) -> Result<(), HvError> {
+    ) -> Result<(), SetRegError> {
         let mut sysreg_write = mshv_rsi_sysreg_write::default();
         sysreg_write.vtl = vtl.into();
         sysreg_write.sysreg = sysreg;
@@ -445,7 +447,7 @@ impl MshvVtl {
         // SAFETY: Calling hcl_rsi_sysreg_write ioctl with the correct arguments.
         unsafe {
             hcl_rsi_sysreg_write(self.file.as_raw_fd(), &sysreg_write)
-                .map_err(|_| HvError::InvalidRegisterValue)?;
+                .map_err(SetRegError::Ioctl)?;
         }
         Ok(())
     }
@@ -485,7 +487,7 @@ impl Hcl {
 
     /// sets system registers through rsi calls
     #[cfg(guest_arch = "aarch64")]
-    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), HvError> {
+    pub fn rsi_sysreg_write(&self, vtl: GuestVtl, sysreg: u64, value: u64) -> Result<(), SetRegError> {
         self.mshv_vtl.rsi_sysreg_write(vtl, sysreg, value)
     }
 

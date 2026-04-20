@@ -18,7 +18,7 @@ use crate::{BackingShared, UhCvmPartitionState, UhCvmVpState, UhPartitionNewPara
 use aarch64defs::EsrEl2;
 use aarch64defs::SystemReg;
 use hcl::protocol::cca_rsi_plane_exit;
-use hcl::{GuestVtl, ioctl::cca::Cca};
+use hcl::{GuestVtl, ioctl::cca::Cca, ioctl::register};
 use hv1_emulator::hv::ProcessorVtlHv;
 use hv1_emulator::synic::ProcessorSynic;
 use hv1_structs::VtlArray;
@@ -372,7 +372,7 @@ impl UhProcessor<'_, CcaBacked> {
         vtl: GuestVtl,
         reg: SystemReg,
         val: u64,
-    ) -> Result<(), hcl::ioctl::Error> {
+    ) -> Result<(), register::SetRegError> {
         self.runner.cca_sysreg_write(vtl, reg, val)
     }
 

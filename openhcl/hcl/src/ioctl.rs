@@ -16,6 +16,7 @@ use self::deferred::DeferredActionSlots;
 use self::ioctls::*;
 use crate::GuestVtl;
 use crate::ioctl::deferred::DeferredAction;
+use crate::ioctl::register::SetRegError;
 use crate::mapped_page::MappedPage;
 use crate::protocol;
 use crate::protocol::EnterModes;
@@ -132,7 +133,7 @@ pub enum Error {
     RestorePartitionTime(#[source] nix::Error),
     // added for CCA for now. could separate into own enum
     #[error("failed to set registers using set_vp_registers hypercall")]
-    SetRegisters(#[source] HvError),
+    SetRegisters(#[source] SetRegError),
     #[error("Invalid register value")]
     InvalidRegisterValue,
 }
