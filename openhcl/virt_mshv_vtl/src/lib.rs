@@ -416,7 +416,7 @@ impl UhCvmVpState {
         cvm_partition: &UhCvmPartitionState,
         _inner: &UhPartitionInner,
         vp_info: &TargetVpInfo,
-        _overlay_pages_required: usize,
+        overlay_pages_required: usize,
     ) -> Result<Self, Error> {
 
         let mut direct_overlay_handle: Option<MemoryBlock> = None;
