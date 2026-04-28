@@ -5,6 +5,7 @@
 
 #![expect(missing_docs)]
 #![forbid(unsafe_code)]
+#![no_std]
 
 pub mod gic;
 pub mod smccc;

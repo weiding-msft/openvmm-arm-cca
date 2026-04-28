@@ -18,7 +18,6 @@ cfg_if::cfg_if!(
         use crate::processor::mshv::x64::HypervisorBackedX86Shared as HypervisorBackedShared;
         use bitvec::prelude::BitArray;
         use bitvec::prelude::Lsb0;
-        // use hv1_emulator::hv::ProcessorVtlHv;
         use processor::LapicState;
         use devmsr::MsrDevice;
         use processor::snp::SnpBackedShared;
