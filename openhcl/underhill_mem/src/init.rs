@@ -106,7 +106,7 @@ pub struct BootInit<'a> {
 
 pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result<MemoryMappings> {
     let mut validated_ranges = Vec::new();
-    let mut vtom = params.vtom;
+    let mut vtom = None;
 
     let acceptor = if params.isolation.is_isolated() {
         Some(Arc::new(MemoryAcceptor::new(params.isolation)?))
@@ -199,17 +199,20 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
     // TODO: don't we possibly need to unaccept these pages for SNP? Or are
     // we assuming they were not in the boot loader's pre-accepted pages.
     match params.isolation {
-        #[cfg(guest_arch = "aarch64")]
         IsolationType::Cca => {
-            p.cca_set_mem_perm(
-                params.mem_layout.ram()[0].range.start(),
-                params.mem_layout.ram()[0].range.end(),
-            )
-            .expect("failed to set CCA memory permissions");
+            #[cfg(guest_arch = "aarch64")]
+            {
+                p.cca_set_mem_perm(
+                    params.mem_layout.ram()[0].range.start(),
+                    params.mem_layout.ram()[0].range.end(),
+                )
+                .expect("failed to set CCA memory permissions");
 
-            vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
+                vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
+            }
         }
         _ => {
+            vtom = params.vtom;
             if let Some(acceptor) = &acceptor {
                 tracing::debug!("Making shared pool pages shared");
 
