@@ -105,9 +105,9 @@ pub struct BootInit<'a> {
 }
 
 pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result<MemoryMappings> {
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(not(guest_arch = "aarch64"))]
     let _ = p;
-    
+
     let mut validated_ranges = Vec::new();
     let mut vtom = None;
 
