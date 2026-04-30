@@ -199,6 +199,7 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
     // TODO: don't we possibly need to unaccept these pages for SNP? Or are
     // we assuming they were not in the boot loader's pre-accepted pages.
     match params.isolation {
+        #[cfg(guest_arch = "aarch64")]
         IsolationType::Cca => {
             p.cca_set_mem_perm(
                 params.mem_layout.ram()[0].range.start(),
