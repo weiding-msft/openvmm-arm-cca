@@ -544,7 +544,7 @@ roxmltree = "0.20.0"
 rsa = { version = "0.10.0-rc.17", default-features = false }
 rusqlite = "0.37"
 rustc-hash = "2.1.1"
-rustyline = "17"
+rustyline = "18"
 seccompiler = "0.5"
 serde = { version = "1.0.185", default-features = false }
 serde_json = { version = "1.0", default-features = false }
