@@ -1974,6 +1974,7 @@ impl<'a> UhProtoPartition<'a> {
             .expect("registering synic intercept cannot fail");
         }
 
+        println!("before get_vsm_capabilities");
         let cvm_state = if is_hardware_isolated {
             let vsm_caps = hcl.get_vsm_capabilities().map_err(Error::GetReg)?;
             let proxy_interrupt_redirect_available =

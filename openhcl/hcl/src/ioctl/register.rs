@@ -343,6 +343,7 @@ impl Hcl {
 
     /// Read the vsm capabilities register for VTL2.
     pub fn get_vsm_capabilities(&self) -> Result<hvdef::HvRegisterVsmCapabilities, GetRegError> {
+        println!("before get_partition_vtl2_register");
         let caps = hvdef::HvRegisterVsmCapabilities::from(
             self.get_partition_vtl2_register(HvArchRegisterName::VsmCapabilities)?
                 .as_u64(),
@@ -505,6 +506,7 @@ impl Hcl {
                     | HvArchRegisterName::TimeRefCount
             ) || per_arch
         );
+        println!("before get_vp_register_hypercall");
         self.mshv_hvcall
             .get_vp_register_hypercall(Vtl::Vtl2, name)
             .map_err(GetRegError::Hypercall)
@@ -571,6 +573,7 @@ impl MshvHvcall {
         names: &[HvArchRegisterName],
         values: &mut [HvRegisterValue],
     ) -> Result<(), HvError> {
+        println!("In get_vp_registers_hypercall() function");
         assert_eq!(names.len(), values.len());
 
         let header = hvdef::hypercall::GetSetVpRegisters {
