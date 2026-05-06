@@ -1974,18 +1974,24 @@ impl<'a> UhProtoPartition<'a> {
             .expect("registering synic intercept cannot fail");
         }
 
-        println!("before get_vsm_capabilities");
-        let cvm_state = if is_hardware_isolated {
+        let cvm_state = if matches!(isolation, IsolationType::Snp | IsolationType::Tdx) {
             let vsm_caps = hcl.get_vsm_capabilities().map_err(Error::GetReg)?;
             let proxy_interrupt_redirect_available =
                 vsm_caps.proxy_interrupt_redirect_available() && !params.disable_proxy_redirect;
-            println!("aarch64:::: {} {}", vsm_caps.proxy_interrupt_redirect_available(), params.disable_proxy_redirect);
             Some(Self::construct_cvm_state(
                 &params,
                 late_params.cvm_params.unwrap(),
                 &caps,
                 guest_vsm_available,
                 proxy_interrupt_redirect_available,
+            )?)
+        } else if isolation == IsolationType::Cca {
+            Some(Self::construct_cvm_state(
+                &params,
+                late_params.cvm_params.unwrap(),
+                &caps,
+                guest_vsm_available,
+                false,
             )?)
         } else {
             None
