@@ -1018,7 +1018,6 @@ impl MshvHvcall {
                     // Hardware isolated VMs cannot trust output from the hypervisor, but check for
                     // consistency between the number of elements processed and the expected count. A
                     // violation of this assertion indicates a buggy or malicious hypervisor.
-                    #[cfg(guest_arch = "x86_64")]
                     assert!(
                         (call_object.status.result().is_ok()
                             && call_object.control.rep_count()
