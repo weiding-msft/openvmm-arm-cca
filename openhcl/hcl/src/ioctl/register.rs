@@ -124,8 +124,9 @@ impl<'a, T: Backing<'a>> ProcessorRunner<'a, T> {
         values: &mut [HvRegisterValue],
     ) -> Result<(), GetRegError> {
         assert_eq!(names.len(), values.len());
-
+        println!("in get_regs");
         if let Some(sidecar) = &mut self.sidecar {
+            println!("using sidecar");
             return sidecar
                 .get_vp_registers(vtl.into(), zerocopy::transmute_ref!(names), values)
                 .map_err(GetRegError::Sidecar);
