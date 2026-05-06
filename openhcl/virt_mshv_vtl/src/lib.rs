@@ -1722,7 +1722,7 @@ impl<'a> UhProtoPartition<'a> {
             .get_privileges_and_features_info()
             .map_err(Error::GetReg)?;
 
-        let guest_vsm_available = if hcl_isolation == IsolationType::Cca {
+        let guest_vsm_available = if hcl_isolation == hcl::ioctl::IsolationType::Cca {
             false
         } else {
             let privs = hcl
