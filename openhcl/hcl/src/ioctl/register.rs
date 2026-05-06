@@ -135,11 +135,15 @@ impl<'a, T: Backing<'a>> ProcessorRunner<'a, T> {
         let mut hv_names: ArrayVec<_, MAX_REGS_PER_HVCALL> = ArrayVec::new();
         let mut hv_values: ArrayVec<_, MAX_REGS_PER_HVCALL> = ArrayVec::new();
 
+        println!("Before do_hvcall in get_regs()");
+
         let do_hvcall =
             |hv_names: &mut ArrayVec<_, _>, hv_values: &mut ArrayVec<&mut HvRegisterValue, _>| {
                 let mut values: ArrayVec<_, MAX_REGS_PER_HVCALL> = ArrayVec::from_iter(
                     std::iter::repeat_n(FromZeros::new_zeroed(), hv_names.len()),
                 );
+
+                println!("before get_vp_registers_hypercall() 1");
                 self.hcl
                     .mshv_hvcall
                     .get_vp_registers_hypercall(vtl, hv_names, &mut values)
@@ -157,8 +161,10 @@ impl<'a, T: Backing<'a>> ProcessorRunner<'a, T> {
             if let Ok(vtl) = vtl.try_into()
                 && let Some(v) = T::try_get_reg(self, vtl, name.into())
             {
+                println!("in if of in kernel managed");
                 *value = v;
             } else if self.is_kernel_managed(name) {
+                println!("in kernel managed");
                 // TODO: group up to MSHV_VP_MAX_REGISTERS regs. The kernel
                 // currently has a bug where it only supports one register at a
                 // time. Once that's fixed, this code could get a group of
@@ -183,6 +189,7 @@ impl<'a, T: Backing<'a>> ProcessorRunner<'a, T> {
                 }
                 *value = reg.value;
             } else {
+                print!("in else of in kerenel managed");
                 hv_names.push(name);
                 hv_values.push(value);
 
@@ -193,6 +200,7 @@ impl<'a, T: Backing<'a>> ProcessorRunner<'a, T> {
         }
 
         if !hv_names.is_empty() {
+            println!("hv_names empty");
             do_hvcall(&mut hv_names, &mut hv_values)?;
         }
 
@@ -594,7 +602,7 @@ impl MshvHvcall {
             )
             .expect("get_vp_registers hypercall should not fail")
         };
-
+        println!("elements processed: {}", status.elements_processed());
         // Status must be success with all elements completed
         status.result()?;
         #[cfg(guest_arch = "x86_64")]
