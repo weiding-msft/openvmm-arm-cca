@@ -49,7 +49,7 @@ impl RunContext<'_> {
             boot_init: None,
             shared_pool: &[],
             maximum_vtl: hvdef::Vtl::Vtl0,
-        }, &p)
+        })
         .await?;
 
         let (partition, vps) = p
