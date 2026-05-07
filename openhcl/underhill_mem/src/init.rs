@@ -245,7 +245,6 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
                 .context("unable to make shared pool pages shared vis")?;
         }
     }
-}
 
     // Map lower VTL memory.
     let gpa_fd = MshvVtlLow::new().context("failed to open /dev/mshv_vtl_low")?;
