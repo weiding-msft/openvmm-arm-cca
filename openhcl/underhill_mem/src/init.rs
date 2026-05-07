@@ -200,12 +200,11 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
         // Prepare VTL0 memory for mapping.
         let acceptor = acceptor.as_ref().unwrap();
         let ram = params.mem_layout.ram().iter().map(|r| r.range);
-        let accepted_ranges = boot_init.accepted_regions.iter().copied();
         // On hardware isolated platforms, accepted memory was accepted with
         // VTL2 only permissions. Provide VTL0 access here.
         tracing::debug!("Applying VTL0 protections");
         if hardware_isolated {
-            for range in memory_range::overlapping_ranges(ram.clone(), accepted_ranges.clone())
+            for range in ram
             {
                 acceptor.apply_initial_lower_vtl_protections(range)?;
             }
