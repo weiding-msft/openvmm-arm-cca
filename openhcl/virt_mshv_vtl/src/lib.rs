@@ -145,8 +145,8 @@ pub enum Error {
     InstallIntercept(HvInterceptType, HvError),
     #[error("failed to query hypervisor register {0:#x?}")]
     Register(HvRegisterName, #[source] HvError),
-    #[error("failed to setup memory perms {0:#x?}")]
-    VtlMem(#[source] HvError),
+    // #[error("failed to setup memory perms {0:#x?}")]
+    // VtlMem(#[source] HvError),
     #[error("failed to set vsm partition config register")]
     VsmPartitionConfig(#[source] SetVsmPartitionConfigError),
     #[error("failed to create virtual device")]

@@ -137,6 +137,8 @@ pub enum Error {
     SetRegisters(#[source] SetRegError),
     #[error("Invalid register value")]
     InvalidRegisterValue,
+    #[error("failed to setup memory perms {0:#x?}")]
+    VtlMem(#[source] HvError),
 }
 
 /// Error for IOCTL errors specifically.
@@ -212,7 +214,7 @@ pub enum ApplyVtlProtectionsError {
         vtl: HvInputVtl,
     },
     #[error(
-        "cca failed with {error:?} when protecting pages {range} with permissions {permissions:x?} for vtl {vtl:?}"
+        "cca failed when protecting pages {range} with permissions for vtl {vtl:?}"
     )]
     Cca {
         range: MemoryRange,

@@ -389,8 +389,8 @@ impl MshvVtl {
             } else {
                 panic!("Invalid VTL")
             },
-            range.start(),
-            range.end(),
+            base_addr: range.start(),
+            top_addr: range.end();
         };
 
         // SAFETY: Calling hcl_rsi_set_mem_perm ioctl with the correct arguments.
@@ -422,9 +422,8 @@ impl Hcl {
     pub fn rsi_set_mem_perm(
         &self,
         vtl: GuestVtl,
-        base_addr: u64,
-        top_addr: u64,
+        range: MemoryRange,
     ) -> Result<(), HvError> {
-        self.mshv_vtl.rsi_set_mem_perm(vtl, base_addr, top_addr)
+        self.mshv_vtl.rsi_set_mem_perm(vtl, &range)
     }
 }
