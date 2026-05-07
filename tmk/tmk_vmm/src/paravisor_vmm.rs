@@ -43,7 +43,7 @@ impl RunContext<'_> {
             processor_topology: &self.state.processor_topology,
             isolation,
             vtl0_alias_map_bit: None,
-            vtom: None,
+            vtom: Some((1 as u64) << (p.hcl.get_realm_config().ipa_width() - 1));,
             mem_layout: &self.state.memory_layout,
             complete_memory_layout: &self.state.memory_layout,
             boot_init: None,

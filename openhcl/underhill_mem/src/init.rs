@@ -104,9 +104,7 @@ pub struct BootInit<'a> {
     pub accepted_regions: &'a [MemoryRange],
 }
 
-pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result<MemoryMappings> {
-    #[cfg(not(guest_arch = "aarch64"))]
-    let _ = p;
+pub async fn init(params: &Init<'_>) -> anyhow::Result<MemoryMappings> {
 
     let mut validated_ranges = Vec::new();
     let mut vtom = params.vtom;
@@ -196,7 +194,6 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
             });
         }
     } else {
-        println!("CCA in else");
         // Prepare VTL0 memory for mapping.
         let acceptor = acceptor.as_ref().unwrap();
         let ram = params.mem_layout.ram().iter().map(|r| r.range);
@@ -209,14 +206,6 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
                 acceptor.apply_initial_lower_vtl_protections(range)?;
             }
         }
-        // p.cca_set_mem_perm(
-        //         params.mem_layout.ram()[0].range.start(),
-        //         params.mem_layout.ram()[0].range.end(),
-        //     )
-        //     .expect("failed to set CCA memory permissions");
-
-        vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
-
     }
 
     // Tell the hypervisor we want to use the shared pool for shared memory.
