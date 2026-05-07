@@ -120,6 +120,7 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
     let hardware_isolated = params.isolation.is_hardware_isolated();
 
     if let Some(boot_init) = &params.boot_init {
+        println!("CCA in here, doubt it though");
         if !params.isolation.is_isolated() {
             // TODO: VTL 2 protections are applied in the boot shim for isolated
             // VMs. Since non-isolated VMs can undergo servicing and this is an
@@ -197,10 +198,6 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
         }
     }
 
-    // Tell the hypervisor we want to use the shared pool for shared memory.
-    //
-    // TODO: don't we possibly need to unaccept these pages for SNP? Or are
-    // we assuming they were not in the boot loader's pre-accepted pages.
     match params.isolation {
         #[cfg(guest_arch = "aarch64")]
         IsolationType::Cca => {
@@ -214,6 +211,10 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
         }
         _ => {
             vtom = params.vtom;
+            // Tell the hypervisor we want to use the shared pool for shared memory.
+            //
+            // TODO: don't we possibly need to unaccept these pages for SNP? Or are
+            // we assuming they were not in the boot loader's pre-accepted pages.
             if let Some(acceptor) = &acceptor {
                 tracing::debug!("Making shared pool pages shared");
 
