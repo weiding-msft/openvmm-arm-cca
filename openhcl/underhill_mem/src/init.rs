@@ -23,7 +23,6 @@ use inspect::Inspect;
 use memory_range::AlignedSubranges;
 use memory_range::MemoryRange;
 use pal_async::task::Spawn;
-use virt_mshv_vtl::UhProtoPartition;
 use std::sync::Arc;
 use tracing::Instrument;
 use underhill_threadpool::AffinitizedThreadpool;
@@ -107,7 +106,7 @@ pub struct BootInit<'a> {
 pub async fn init(params: &Init<'_>) -> anyhow::Result<MemoryMappings> {
 
     let mut validated_ranges = Vec::new();
-    let mut vtom = params.vtom;
+    let vtom = params.vtom;
 
     let acceptor = if params.isolation.is_isolated() {
         Some(Arc::new(MemoryAcceptor::new(params.isolation)?))

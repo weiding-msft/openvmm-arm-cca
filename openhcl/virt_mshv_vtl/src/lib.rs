@@ -2075,6 +2075,12 @@ impl<'a> UhProtoPartition<'a> {
         ))
     }
 
+    /// Getter for realm_config
+    #[cfg(guest_arch = "aarch64")]
+    pub fn realm_config(&self) -> RsiRealmConfig {
+        self.realm_config
+    }
+
 }
 
 impl UhPartition {
