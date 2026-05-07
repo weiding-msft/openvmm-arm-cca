@@ -390,7 +390,7 @@ impl MshvVtl {
                 panic!("Invalid VTL")
             },
             base_addr: range.start(),
-            top_addr: range.end();
+            top_addr: range.end(),
         };
 
         // SAFETY: Calling hcl_rsi_set_mem_perm ioctl with the correct arguments.
