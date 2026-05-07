@@ -2081,13 +2081,6 @@ impl<'a> UhProtoPartition<'a> {
         self.realm_config
     }
 
-    /// Setter for memory permissions
-    #[cfg(guest_arch = "aarch64")]
-    pub fn cca_set_mem_perm(&self, base_addr: u64, top_addr: u64) -> Result<(), Error> {
-        self.hcl
-            .rsi_set_mem_perm(GuestVtl::Vtl0, base_addr, top_addr)
-            .map_err(Error::VtlMem)
-    }
 }
 
 impl UhPartition {

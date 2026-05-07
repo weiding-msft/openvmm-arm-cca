@@ -209,14 +209,13 @@ pub async fn init(params: &Init<'_>, p: &UhProtoPartition<'_>) -> anyhow::Result
                 acceptor.apply_initial_lower_vtl_protections(range)?;
             }
         }
+        // p.cca_set_mem_perm(
+        //         params.mem_layout.ram()[0].range.start(),
+        //         params.mem_layout.ram()[0].range.end(),
+        //     )
+        //     .expect("failed to set CCA memory permissions");
 
-        p.cca_set_mem_perm(
-                params.mem_layout.ram()[0].range.start(),
-                params.mem_layout.ram()[0].range.end(),
-            )
-            .expect("failed to set CCA memory permissions");
-
-            vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
+        vtom = Some((1 as u64) << (p.realm_config().ipa_width() - 1));
 
     }
 

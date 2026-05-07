@@ -211,6 +211,13 @@ pub enum ApplyVtlProtectionsError {
         permissions: x86defs::tdx::TdgMemPageGpaAttr,
         vtl: HvInputVtl,
     },
+    #[error(
+        "cca failed with {error:?} when protecting pages {range} with permissions {permissions:x?} for vtl {vtl:?}"
+    )]
+    Cca {
+        range: MemoryRange,
+        vtl: HvInputVtl,
+    },
     #[error("no valid protections for vtl {0:?}")]
     InvalidVtl(Vtl),
 }
