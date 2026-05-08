@@ -112,6 +112,7 @@ async fn start_vp(
                 let vp = vp
                 .bind_processor::<virt_mshv_vtl::CcaBacked>(&driver, Some(&mut control))
                 .unwrap();
+                println("here4");
                 runner.build(vp).unwrap().run_vp().await;
                 }),
         _ =>

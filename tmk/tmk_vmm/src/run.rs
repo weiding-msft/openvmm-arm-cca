@@ -480,6 +480,7 @@ impl RunnerBuilder {
             }
             state.commit()?;
         }
+        println!("in runner build");
         Ok(Runner {
             vp,
             vp_index: self.vp_index,

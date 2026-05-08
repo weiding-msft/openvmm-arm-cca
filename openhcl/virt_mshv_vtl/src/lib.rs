@@ -720,7 +720,7 @@ impl UhProcessorBox {
                 )
                 .map_err(Error::Hcl)?;
         }
-
+        println!("here3");
         UhProcessor::new(driver, &self.partition, self.vp_info, control)
     }
 
