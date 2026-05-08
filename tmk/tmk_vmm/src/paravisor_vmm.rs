@@ -51,7 +51,7 @@ impl RunContext<'_> {
             maximum_vtl: hvdef::Vtl::Vtl0,
         })
         .await?;
-
+        println!("here");
         let (partition, vps) = p
             .build(UhLateParams {
                 gm: [
@@ -74,7 +74,7 @@ impl RunContext<'_> {
                 vmbus_relay: false,
             })
             .await?;
-
+        println!("here");
         let partition = Arc::new(partition);
 
         let mut threads = Vec::new();
