@@ -262,6 +262,7 @@ impl RunContext<'_> {
                     test,
                 )?
             }
+            println!("before laod aarch64");
             #[cfg(guest_arch = "aarch64")]
             {
                 load::load_aarch64(
@@ -274,7 +275,7 @@ impl RunContext<'_> {
                 )?
             }
         };
-
+        println!("before start_vp");
         start_vp(
             self,
             RunnerBuilder::new(
