@@ -38,9 +38,10 @@ use super::{BackingSharedParams, UhProcessor, private::BackingPrivate, vp_state:
 struct CcaRunVpError(#[source] hcl::ioctl::Error);
 
 // TODO: CCA: what is this needed for?
-#[allow(dead_code)]
 enum UhDirectOverlay {
+    #[expect(unused)]
     Sipp,
+    #[expect(unused)]
     Sifp,
     Count,
 }
@@ -640,7 +641,7 @@ impl HardwareIsolatedBacking for CcaBacked {
     }
 }
 
-#[allow(dead_code)]
+#[expect(unused)]
 struct CcaTlbLockFlushAccess<'a> {
     vp_index: VpIndex,
     partition: &'a UhPartitionInner,

@@ -88,7 +88,7 @@ impl IntoPipeline for CcaTestsCli {
                 .new_job(
                     FlowPlatform::host(backend_hint),
                     FlowArch::host(backend_hint),
-                    "cca-tests: check existence of emulation envionrment needed tools",
+                    "cca-tests: check existence of emulation environment needed tools",
                 )
                 .dep_on(
                     |ctx| flowey_lib_hvlite::_jobs::local_check_cca_emu_prereq::Params {

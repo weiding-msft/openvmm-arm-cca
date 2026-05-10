@@ -144,8 +144,6 @@ pub enum Error {
     InstallIntercept(HvInterceptType, HvError),
     #[error("failed to query hypervisor register {0:#x?}")]
     Register(HvRegisterName, #[source] HvError),
-    // #[error("failed to setup memory perms {0:#x?}")]
-    // VtlMem(#[source] HvError),
     #[error("failed to set vsm partition config register")]
     VsmPartitionConfig(#[source] SetVsmPartitionConfigError),
     #[error("failed to create virtual device")]
@@ -408,7 +406,7 @@ impl UhCvmVpState {
     /// Creates a new CVM VP state.
     pub(crate) fn new(
         cvm_partition: &UhCvmPartitionState,
-        #[cfg_attr(guest_arch = "aarch64", allow(unused_variables))]
+        #[cfg_attr(guest_arch = "aarch64", expect(unused_variables))]
         inner: &UhPartitionInner,
         vp_info: &TargetVpInfo,
         overlay_pages_required: usize,
@@ -937,7 +935,6 @@ impl X86Partition for UhPartition {
     }
 }
 
-#[allow(dead_code)]
 impl UhPartitionInner {
     fn vp(&self, index: VpIndex) -> Option<&'_ UhVpInner> {
         self.vps.get(index.index() as usize)
@@ -946,11 +943,6 @@ impl UhPartitionInner {
     #[cfg(guest_arch = "x86_64")]
     fn lapic(&self, vtl: GuestVtl) -> Option<&LocalApicSet> {
         self.backing_shared.cvm_state().map(|x| &x.lapic[vtl])
-    }
-
-    #[cfg(not(guest_arch = "x86_64"))]
-    fn lapic(&self, _vtl: GuestVtl) -> Option<()> {
-        None
     }
 
     fn hv(&self) -> Option<&GlobalHv<2>> {
@@ -1432,8 +1424,6 @@ fn is_restore_partition_time_available() -> bool {
     );
     enlightenment_info.restore_time_on_resume()
 }
-
-#[allow(dead_code)]
 // xtask-fmt allow-target-arch cpu-intrinsic
 #[cfg(not(target_arch = "x86_64"))]
 fn is_restore_partition_time_available() -> bool {
@@ -1443,8 +1433,11 @@ fn is_restore_partition_time_available() -> bool {
 
 /// Configure the [`hvdef::HvRegisterVsmPartitionConfig`] register with the
 /// values used by underhill.
-#[allow(dead_code)]
 fn set_vtl2_vsm_partition_config(hcl: &Hcl) -> Result<(), Error> {
+    if hcl.isolation() == hcl::ioctl::IsolationType::Cca {
+        // For CCA, do nothing now
+        return Ok(());
+    }
     // Read available capabilities to determine what to enable.
     let caps = hcl.get_vsm_capabilities().map_err(Error::GetReg)?;
     let hardware_isolated = hcl.isolation().is_hardware_isolated();
@@ -1711,25 +1704,12 @@ impl<'a> UhProtoPartition<'a> {
 
         hcl.set_allowed_hypercalls(allowed_hypercalls.as_slice());
 
-        // TODO: CCA: this will be needed in the long run, but for now
-        // we don't have a HV to rely on.
-        #[cfg(guest_arch = "x86_64")]
         set_vtl2_vsm_partition_config(&hcl)?;
 
-        #[cfg(guest_arch = "x86_64")]
         let privs = hcl
             .get_privileges_and_features_info()
             .map_err(Error::GetReg)?;
-
-        let guest_vsm_available = if hcl_isolation == hcl::ioctl::IsolationType::Cca {
-            false
-        } else {
-            let privs = hcl
-                .get_privileges_and_features_info()
-                .map_err(Error::GetReg)?;
-
-            Self::check_guest_vsm_support(Some(privs), &hcl)?
-        };
+        let guest_vsm_available = Self::check_guest_vsm_support(Some(privs), &hcl)?;
 
         #[cfg(guest_arch = "x86_64")]
         let cpuid = match params.isolation {
@@ -1997,6 +1977,7 @@ impl<'a> UhProtoPartition<'a> {
             let vsm_caps = hcl.get_vsm_capabilities().map_err(Error::GetReg)?;
             let proxy_interrupt_redirect_available =
                 vsm_caps.proxy_interrupt_redirect_available() && !params.disable_proxy_redirect;
+
             Some(Self::construct_cvm_state(
                 &params,
                 late_params.cvm_params.unwrap(),

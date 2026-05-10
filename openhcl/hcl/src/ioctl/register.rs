@@ -402,6 +402,10 @@ impl Hcl {
 
         #[cfg(guest_arch = "aarch64")]
         {
+            if self.isolation.is_hardware_isolated() {
+                return Ok(hvdef::HvPartitionPrivilege::default());
+            }
+
             Ok(hvdef::HvPartitionPrivilege::from(
                 self.get_partition_vtl2_register(HvArchRegisterName::PrivilegesAndFeaturesInfo)?
                     .as_u64(),
@@ -594,7 +598,6 @@ impl MshvHvcall {
 
         // Status must be success with all elements completed
         status.result()?;
-        #[cfg(guest_arch = "x86_64")]
         assert_eq!(status.elements_processed(), names.len());
 
         Ok(())

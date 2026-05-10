@@ -168,7 +168,7 @@ fn load_common<R: Debug + GuestArch>(
 struct LoadInfo {
     entrypoint: u64,
     param: u64,
-    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+    #[cfg_attr(target_arch = "aarch64", expect(dead_code))]
     next_available_address: u64,
 }
 

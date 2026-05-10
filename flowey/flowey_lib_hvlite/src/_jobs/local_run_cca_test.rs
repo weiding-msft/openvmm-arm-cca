@@ -190,7 +190,7 @@ impl SimpleFlowNode for Node {
                     .env("VIRTUAL_ENV", &venv_dir)
                     .env("PATH", &venv_bin_path)
                     .run()
-                    .with_context(|| "failed to launch guest using shrinkwrap}")?;
+                    .with_context(|| "failed to launch guest using shrinkwrap")?;
 
                 log::info!("openvmm cca tests finished");
 

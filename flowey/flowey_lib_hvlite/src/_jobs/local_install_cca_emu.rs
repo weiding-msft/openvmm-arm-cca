@@ -35,7 +35,7 @@ const HYPERV_CONFIGS: &[&str] = &[
 
 flowey_request! {
     pub struct Params {
-        /// The CCA test root directory, defaults to target/cca-tests.
+        /// The CCA test root directory, defaults to target/cca-test.
         pub test_root: PathBuf,
         pub done: WriteVar<SideEffect>,
     }

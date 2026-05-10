@@ -47,7 +47,6 @@ impl SimpleFlowNode for Node {
                     "bison",
                     "libssl-dev",
                     "python3-venv",
-                    "python3-pip",
                 ];
 
                 let mut missing_packages = Vec::new();

@@ -611,10 +611,11 @@ pub(crate) mod ioctls {
     // CCA: Structure (mostly) mirroring the data taken by
     // RMM in the RSI_PLANE_SYSREG_WRITE.
     // `vtl` is converted into plane number in kernel driver.
-    #[repr(C, packed)]
+    #[repr(C)]
     #[derive(Clone, Copy, Default)]
     pub struct mshv_rsi_sysreg_write {
         pub vtl: u8,
+        pub _pad: [u8;7],
         pub sysreg: u64,
         pub value: u64,
     }
@@ -623,10 +624,11 @@ pub(crate) mod ioctls {
     // RMM in the RSI_SET_MEM_PERM.
     // Note: we hand over the plane number here,
     // we should probably stay consistent with `sysreg_write`.
-    #[repr(C, packed)]
+    #[repr(C)]
     #[derive(Clone, Copy, Default)]
     pub struct mshv_rsi_set_mem_perm {
         pub plane: u8,
+        pub _pad: [u8;7],
         pub base_addr: u64,
         pub top_addr: u64,
     }
@@ -1863,7 +1865,7 @@ impl Hcl {
                 unreachable!()
             }
         } else if cfg!(guest_arch = "aarch64") {
-            // TODO: CCA: Should check the guest arch before.
+            // TODO: we should check if the underlying arm64 arhcitecture extension support CCA
             IsolationType::Cca
         } else {
             IsolationType::None

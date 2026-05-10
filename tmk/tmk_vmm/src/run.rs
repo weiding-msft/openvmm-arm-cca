@@ -150,7 +150,7 @@ impl CommonState {
 
         let ram_size = 0x400000;
 
-        #[cfg_attr(guest_arch = "x86_64", allow(unused_mut))]
+        #[cfg_attr(guest_arch = "x86_64", expect(unused_mut))]
         let mut memory_layout =
             MemoryLayout::new(ram_size, &[], &[], &[], None).context("bad memory layout")?;
         #[cfg(all(target_os = "linux", guest_arch = "aarch64"))]

@@ -308,11 +308,13 @@ impl<'a> super::BackingPrivate<'a> for Cca {
 /// * gicv3_vtr shows part of the GICv3 configuration for the
 ///     realm (needed for GIC virtualisation)
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct RsiRealmConfig {
     ipa_width: u64,
+    #[expect(unused)]
     hash_algo: u64,
+    #[expect(unused)]
     num_aux_planes: u64,
+    #[expect(unused)]
     gicv3_vtr: u64,
 }
 
@@ -380,6 +382,7 @@ impl MshvVtl {
             } else {
                 panic!("Invalid VTL")
             },
+            _pad: [0; 7],
             base_addr: range.start(),
             top_addr: range.end(),
         };
