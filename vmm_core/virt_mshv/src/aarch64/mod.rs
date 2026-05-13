@@ -364,10 +364,14 @@ impl MshvProcessor<'_> {
         match ec {
             ExceptionClass::DATA_ABORT_LOWER => {
                 let iss = IssDataAbort::from(
-                    u32::from(syndrome.lower_iss())
-                        | (u32::from(syndrome.wnr()) << 6)
-                        | (u32::from(syndrome.mid_iss()) << 7)
-                        | (u32::from(syndrome.b_srt()) << 16),
+                    (syndrome.lower_iss() as u32)
+                    | ((syndrome.wnr() as u32) << 6)
+                    | ((syndrome.mid_iss() as u32) << 7)
+                    | ((syndrome.srt() as u32) << 16)
+                    | ((syndrome.a() as u32) << 21)
+                    | ((syndrome.b() as u32) << 22)
+                    | ((syndrome.c() as u32) << 23)
+                    | ((syndrome.d() as u32) << 24)
                 );
                 if !iss.isv() {
                     return Err(dev.fatal_error(
