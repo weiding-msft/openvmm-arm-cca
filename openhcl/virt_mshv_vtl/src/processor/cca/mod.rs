@@ -14,30 +14,41 @@ use crate::Error;
 use crate::TlbFlushLockAccess;
 use crate::UhPartitionInner;
 use crate::processor::InterceptMessageState;
-use crate::{BackingShared, UhCvmPartitionState, UhCvmVpState, UhPartitionNewParams};
+use crate::BackingShared;
+use crate::UhCvmPartitionState;
+use crate::UhCvmVpState;
+use crate::UhPartitionNewParams;
 use aarch64defs::EsrEl2;
 use aarch64defs::SystemReg;
-use hcl::{GuestVtl, ioctl::cca::Cca, ioctl::register};
+use hcl::GuestVtl;
+use hcl::ioctl::cca::Cca;
+use hcl::ioctl::register;
 use hv1_emulator::hv::ProcessorVtlHv;
 use hv1_emulator::synic::ProcessorSynic;
 use hv1_structs::VtlArray;
 use hvdef::HvRegisterCrInterceptControl;
-use inspect::{Inspect, InspectMut};
+use inspect::Inspect;
+use inspect::InspectMut;
 use rsi::cca_rsi_plane_exit;
 use virt::VpIndex;
 use virt::aarch64::vp;
 use virt::io::CpuIo;
-use virt::{VpHaltReason, aarch64::vp::AccessVpState};
+use virt::VpHaltReason;
+use virt::aarch64::vp::AccessVpState;
 use virt_support_aarch64emu::translate::TranslationRegisters;
 use zerocopy::FromZeros;
 
-use super::{BackingSharedParams, UhProcessor, private::BackingPrivate, vp_state::UhVpStateAccess};
+use super::BackingSharedParams;
+use super::UhProcessor;
+use super::private::BackingPrivate;
+use super::vp_state::UhVpStateAccess;
 
 #[derive(Debug, Error)]
 #[error("failed to run")]
 struct CcaRunVpError(#[source] hcl::ioctl::Error);
 
-// TODO: CCA: what is this needed for?
+// For use with Hyper-V synthetic interrupt controller
+// allocated by paravisor
 enum UhDirectOverlay {
     #[expect(unused)]
     Sipp,
@@ -55,7 +66,7 @@ pub struct CcaBacked {
 
 #[derive(Clone, Copy, InspectMut, Inspect)]
 struct CcaVtl {
-    // CCA: potentially needed fields, based on TDX implementation:
+    // TODO: CCA: potentially needed fields, based on TDX implementation:
     // * values of control registers
     // * interrupt information
     // * exception error code
@@ -213,8 +224,21 @@ impl BackingPrivate for CcaBacked {
     }
 
     fn init(_this: &mut UhProcessor<'_, Self>) {
-        // TODO: CCA: init non-zero registers for plane?
+        // initialise non-zero registers for plane
         // TODO: CCA: SIMD regs?
+        const SCTLR_EL1_DEFAULT: u64 = 0xC50878;
+        const PMCR_EL0_DEFAULT: u64 = 1 << 6;
+        const MDSCR_EL1_DEFAULT: u64 = 1 << 11;
+
+        self.vp
+            .sysreg_write(GuestVtl::Vtl0, SystemReg::SCTLR, SCTLR_EL1_DEFAULT)
+            .map_err(vp_state::Error::SetRegisters)?;
+        self.vp
+            .sysreg_write(GuestVtl::Vtl0, SystemReg::PMCR_EL0, PMCR_EL0_DEFAULT)
+            .map_err(vp_state::Error::SetRegisters)?;
+        self.vp
+            .sysreg_write(GuestVtl::Vtl0, SystemReg::MDSCR_EL1, MDSCR_EL1_DEFAULT)
+            .map_err(vp_state::Error::SetRegisters)
     }
 
     async fn run_vp(
@@ -234,11 +258,6 @@ impl BackingPrivate for CcaBacked {
             .runner
             .run()
             .map_err(|e| dev.fatal_error(CcaRunVpError(e).into()))?;
-
-        // let mut has_intercept = self
-        //     .runner
-        //     .run()
-        //     .map_err(|e| dev.fatal_error(SnpRunVpError(e).into()))?;
 
         // Preserve the plane context, so we can restore it later.
         this.preserve_plane_context();
@@ -513,21 +532,7 @@ impl AccessVpState for UhVpStateAccess<'_, '_, CcaBacked> {
     }
 
     fn set_system_registers(&mut self, _value: &vp::SystemRegisters) -> Result<(), Self::Error> {
-        // TODO: CCA: should figure out where to initialize these registers
-        // Maybe in `CcaBacked::init`?
-        const SCTLR_EL1_DEFAULT: u64 = 0xC50878;
-        const PMCR_EL0_DEFAULT: u64 = 1 << 6;
-        const MDSCR_EL1_DEFAULT: u64 = 1 << 11;
 
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::SCTLR, SCTLR_EL1_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters)?;
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::PMCR_EL0, PMCR_EL0_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters)?;
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::MDSCR_EL1, MDSCR_EL1_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters)
     }
 }
 

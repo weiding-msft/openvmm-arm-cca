@@ -476,7 +476,7 @@ impl RunnerBuilder {
                     system_registers,
                 } = self.regs.as_ref();
                 state.set_registers(registers)?;
-                state.set_system_registers(system_registers)?;
+                // state.set_system_registers(system_registers)?;
             }
             state.commit()?;
         }
