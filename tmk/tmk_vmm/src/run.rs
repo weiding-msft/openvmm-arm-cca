@@ -473,7 +473,7 @@ impl RunnerBuilder {
             {
                 let virt::aarch64::Aarch64InitialRegs {
                     registers,
-                    system_registers,
+                    system_registers: _,
                 } = self.regs.as_ref();
                 state.set_registers(registers)?;
                 // state.set_system_registers(system_registers)?;

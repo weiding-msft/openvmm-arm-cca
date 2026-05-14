@@ -232,15 +232,15 @@ impl BackingPrivate for CcaBacked {
 
         vp
         .sysreg_write(GuestVtl::Vtl0, SystemReg::SCTLR, SCTLR_EL1_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters);
+        .map_err(vp_state::Error::SetRegisters)?;
 
         vp
         .sysreg_write(GuestVtl::Vtl0, SystemReg::PMCR_EL0, PMCR_EL0_DEFAULT)
-        .map_err(vp_state::Error::SetRegisters);
+        .map_err(vp_state::Error::SetRegisters)?;
 
         vp
         .sysreg_write(GuestVtl::Vtl0, SystemReg::MDSCR_EL1, MDSCR_EL1_DEFAULT)
-        .map_err(vp_state::Error::SetRegisters);
+        .map_err(vp_state::Error::SetRegisters)?;
     }
 
     async fn run_vp(
