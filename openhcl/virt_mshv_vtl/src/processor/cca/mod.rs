@@ -223,7 +223,7 @@ impl BackingPrivate for CcaBacked {
         UhVpStateAccess::new(this, vtl)
     }
 
-    fn init(_this: &mut UhProcessor<'_, Self>) {
+    fn init(&self, _this: &mut UhProcessor<'_, Self>) {
         // initialise non-zero registers for plane
         // TODO: CCA: SIMD regs?
         const SCTLR_EL1_DEFAULT: u64 = 0xC50878;
@@ -531,9 +531,9 @@ impl AccessVpState for UhVpStateAccess<'_, '_, CcaBacked> {
         todo!()
     }
 
-    fn set_system_registers(&mut self, _value: &vp::SystemRegisters) -> Result<(), Self::Error> {
+    // fn set_system_registers(&mut self, _value: &vp::SystemRegisters) -> Result<(), Self::Error> {
 
-    }
+    // }
 }
 
 impl HardwareIsolatedBacking for CcaBacked {
