@@ -533,9 +533,9 @@ impl AccessVpState for UhVpStateAccess<'_, '_, CcaBacked> {
         todo!()
     }
 
-    // fn set_system_registers(&mut self, _value: &vp::SystemRegisters) -> Result<(), Self::Error> {
-
-    // }
+    fn set_system_registers(&mut self, _value: &vp::SystemRegisters) -> Result<(), Self::Error> {
+        todo!()
+    }
 }
 
 impl HardwareIsolatedBacking for CcaBacked {
