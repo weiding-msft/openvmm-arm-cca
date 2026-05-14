@@ -597,48 +597,12 @@ pub(crate) mod ioctls {
 
     ioctl_read!(mshv_create_vtl, MSHV_IOCTL, MSHV_CREATE_VTL, u8);
 
-    // CCA: Structure mirroring the data returned by RMM hhh
-    // in the RSI_REALM_CONFIG call.
-    #[repr(C, align(0x1000))]
-    #[derive(Clone, Copy, Default)]
-    pub struct mshv_realm_config {
-        pub ipa_width: u64,
-        pub algorithm: u64,
-        pub num_aux_planes: u64,
-        pub gicv3_vtr: u64,
-    }
-
-    // CCA: Structure (mostly) mirroring the data taken by
-    // RMM in the RSI_PLANE_SYSREG_WRITE.
-    // `vtl` is converted into plane number in kernel driver.
-    #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    pub struct mshv_rsi_sysreg_write {
-        pub vtl: u8,
-        pub _pad: [u8;7],
-        pub sysreg: u64,
-        pub value: u64,
-    }
-
-    // CCA: Structure mirroring the data taken by
-    // RMM in the RSI_SET_MEM_PERM.
-    // Note: we hand over the plane number here,
-    // we should probably stay consistent with `sysreg_write`.
-    #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    pub struct mshv_rsi_set_mem_perm {
-        pub plane: u8,
-        pub _pad: [u8;7],
-        pub base_addr: u64,
-        pub top_addr: u64,
-    }
-
     // CCA: Gets the RSI Realm Config value from the kernel
     ioctl_read!(
         hcl_realm_config,
         MSHV_IOCTL,
         MSHV_VTL_REALM_CONFIG,
-        mshv_realm_config
+        cca::mshv_realm_config
     );
 
     // CCA: Set the value of a system register
@@ -646,7 +610,7 @@ pub(crate) mod ioctls {
         hcl_rsi_sysreg_write,
         MSHV_IOCTL,
         MSHV_VTL_RSI_SYSREG_WRITE,
-        mshv_rsi_sysreg_write
+        cca::mshv_rsi_sysreg_write
     );
 
     // CCA: Assign the address described by `mshv_rsi_set_mem_perm`
@@ -660,7 +624,7 @@ pub(crate) mod ioctls {
         hcl_rsi_set_mem_perm,
         MSHV_IOCTL,
         MSHV_VTL_RSI_SET_MEM_PERM,
-        mshv_rsi_set_mem_perm
+        cca::mshv_rsi_set_mem_perm
     );
 
     #[repr(C)]
