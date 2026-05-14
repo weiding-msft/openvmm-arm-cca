@@ -223,22 +223,24 @@ impl BackingPrivate for CcaBacked {
         UhVpStateAccess::new(this, vtl)
     }
 
-    fn init(&self, _this: &mut UhProcessor<'_, Self>) {
+    fn init(vp: &mut UhProcessor<'_, Self>) {
         // initialise non-zero registers for plane
         // TODO: CCA: SIMD regs?
         const SCTLR_EL1_DEFAULT: u64 = 0xC50878;
         const PMCR_EL0_DEFAULT: u64 = 1 << 6;
         const MDSCR_EL1_DEFAULT: u64 = 1 << 11;
 
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::SCTLR, SCTLR_EL1_DEFAULT)
+        vp
+        .sysreg_write(GuestVtl::Vtl0, SystemReg::SCTLR, SCTLR_EL1_DEFAULT)
             .map_err(vp_state::Error::SetRegisters)?;
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::PMCR_EL0, PMCR_EL0_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters)?;
-        self.vp
-            .sysreg_write(GuestVtl::Vtl0, SystemReg::MDSCR_EL1, MDSCR_EL1_DEFAULT)
-            .map_err(vp_state::Error::SetRegisters)
+
+        vp
+        .sysreg_write(GuestVtl::Vtl0, SystemReg::PMCR_EL0, PMCR_EL0_DEFAULT)
+        .map_err(vp_state::Error::SetRegisters)?;
+
+        vp
+        .sysreg_write(GuestVtl::Vtl0, SystemReg::MDSCR_EL1, MDSCR_EL1_DEFAULT)
+        .map_err(vp_state::Error::SetRegisters)
     }
 
     async fn run_vp(
