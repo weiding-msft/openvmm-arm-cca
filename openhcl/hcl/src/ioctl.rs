@@ -347,6 +347,7 @@ enum HvcallRepInput<'a, T> {
 
 pub(crate) mod ioctls {
     use crate::protocol;
+    use super::cca;
     use hvdef::hypercall::HvRegisterAssoc;
     use nix::ioctl_none;
     use nix::ioctl_read;
