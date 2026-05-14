@@ -419,8 +419,8 @@ impl Hcl {
     }
 }
 
-// CCA: Structure mirroring the data returned by RMM hhh
-// in the RSI_REALM_CONFIG call.
+/// CCA: Structure mirroring the data returned by RMM hhh
+/// in the RSI_REALM_CONFIG call.
 #[repr(C, align(0x1000))]
 #[derive(Clone, Copy, Default)]
 pub struct mshv_realm_config {
@@ -430,9 +430,9 @@ pub struct mshv_realm_config {
     pub gicv3_vtr: u64,
 }
 
-// CCA: Structure (mostly) mirroring the data taken by
-// RMM in the RSI_PLANE_SYSREG_WRITE.
-// `vtl` is converted into plane number in kernel driver.
+/// CCA: Structure (mostly) mirroring the data taken by
+/// RMM in the RSI_PLANE_SYSREG_WRITE.
+/// `vtl` is converted into plane number in kernel driver.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct mshv_rsi_sysreg_write {
@@ -442,10 +442,10 @@ pub struct mshv_rsi_sysreg_write {
     pub value: u64,
 }
 
-// CCA: Structure mirroring the data taken by
-// RMM in the RSI_SET_MEM_PERM.
-// Note: we hand over the plane number here,
-// we should probably stay consistent with `sysreg_write`.
+/// CCA: Structure mirroring the data taken by
+/// RMM in the RSI_SET_MEM_PERM.
+/// Note: we hand over the plane number here,
+/// we should probably stay consistent with `sysreg_write`.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct mshv_rsi_set_mem_perm {
