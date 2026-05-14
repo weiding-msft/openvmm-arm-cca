@@ -423,6 +423,7 @@ impl Hcl {
 /// in the RSI_REALM_CONFIG call.
 #[repr(C, align(0x1000))]
 #[derive(Clone, Copy, Default)]
+#[expect(missing_docs)]
 pub struct mshv_realm_config {
     pub ipa_width: u64,
     pub algorithm: u64,
@@ -435,6 +436,7 @@ pub struct mshv_realm_config {
 /// `vtl` is converted into plane number in kernel driver.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+#[expect(missing_docs)]
 pub struct mshv_rsi_sysreg_write {
     pub vtl: u8,
     pub _pad: [u8;7],
@@ -448,6 +450,7 @@ pub struct mshv_rsi_sysreg_write {
 /// we should probably stay consistent with `sysreg_write`.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
+#[expect(missing_docs)]
 pub struct mshv_rsi_set_mem_perm {
     pub plane: u8,
     pub _pad: [u8;7],
