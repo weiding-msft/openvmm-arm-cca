@@ -633,8 +633,6 @@ fn write_output_newline(
     output_send: &mpsc::Sender<String>,
     line_was_empty: bool,
 ) {
-    let _ = std::io::stdout().write_all(b"\n");
-    let _ = std::io::stdout().flush();
     let _ = output_send.send("\n".to_owned());
 
     if line_was_empty {
