@@ -50,7 +50,6 @@ use openvmm_defs::config::Config;
 use openvmm_defs::config::DEFAULT_PCAT_BOOT_ORDER;
 use openvmm_defs::config::DeviceVtl;
 use openvmm_defs::config::HypervisorConfig;
-use openvmm_defs::config::IgvmUefiConfig;
 use openvmm_defs::config::LateMapVtl0MemoryPolicy;
 use openvmm_defs::config::LoadMode;
 use openvmm_defs::config::NumaNode;
@@ -58,6 +57,7 @@ use openvmm_defs::config::NumaTopology;
 use openvmm_defs::config::PcieDeviceConfig;
 use openvmm_defs::config::ProcessorTopologyConfig;
 use openvmm_defs::config::SerialInformation;
+use openvmm_defs::config::UefiConfig as OpenVmmUefiConfig;
 use openvmm_defs::config::UefiConsoleMode;
 use openvmm_defs::config::VmbusConfig;
 use openvmm_defs::config::VpAssignment;
@@ -901,18 +901,20 @@ impl PetriVmConfigSetupCore<'_> {
                         .into();
                     LoadMode::Uefi {
                         firmware,
-                        enable_debugging: false,
-                        enable_memory_protections: false,
-                        disable_frontpage: *disable_frontpage,
-                        enable_tpm: self.tpm_config.is_some(),
-                        enable_battery: false,
-                        enable_serial: true,
-                        enable_vpci_boot: *enable_vpci_boot,
-                        uefi_console_mode: Some(UefiConsoleMode::Com1),
-                        default_boot_always_attempt: *default_boot_always_attempt,
-                        bios_guid: Guid::new_random(),
-                        enable_vmbus: !self.no_vmbus,
-                        force_dma_bounce: *force_dma_bounce,
+                        config: OpenVmmUefiConfig {
+                            enable_debugging: false,
+                            enable_memory_protections: false,
+                            disable_frontpage: *disable_frontpage,
+                            enable_tpm: self.tpm_config.is_some(),
+                            enable_battery: false,
+                            enable_serial: true,
+                            enable_vpci_boot: *enable_vpci_boot,
+                            uefi_console_mode: Some(UefiConsoleMode::Com1),
+                            default_boot_always_attempt: *default_boot_always_attempt,
+                            bios_guid: Guid::new_random(),
+                            enable_vmbus: !self.no_vmbus,
+                            force_dma_bounce: *force_dma_bounce,
+                        },
                     }
                 }
                 UefiFirmware::Igvm(igvm_path) => {
@@ -923,7 +925,7 @@ impl PetriVmConfigSetupCore<'_> {
                         file,
                         cmdline: String::new(),
                         vtl2_base_address: Vtl2BaseAddressType::File,
-                        uefi_config: Some(IgvmUefiConfig {
+                        uefi_config: Some(OpenVmmUefiConfig {
                             enable_debugging: false,
                             enable_memory_protections: false,
                             disable_frontpage: *disable_frontpage,

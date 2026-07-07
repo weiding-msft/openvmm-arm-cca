@@ -76,6 +76,7 @@ use openvmm_defs::config::PcieRootComplexConfig;
 use openvmm_defs::config::PcieSwitchConfig;
 use openvmm_defs::config::PmuGsivConfig;
 use openvmm_defs::config::ProcessorTopologyConfig;
+use openvmm_defs::config::UefiConfig;
 use openvmm_defs::config::VirtioBus;
 use openvmm_defs::config::VmbusConfig;
 use openvmm_defs::config::VpciDeviceConfig;
@@ -173,6 +174,27 @@ use watchdog_core::platform::BaseWatchdogPlatform;
 use watchdog_core::platform::WatchdogCallback;
 use watchdog_core::platform::WatchdogPlatform;
 use watchdog_core::resources::StaticWatchdogPlatformResolver;
+
+fn uefi_load_settings(
+    config: UefiConfig,
+    guest_watchdog: bool,
+) -> super::vm_loaders::uefi::UefiLoadSettings {
+    super::vm_loaders::uefi::UefiLoadSettings {
+        debugging: config.enable_debugging,
+        battery: config.enable_battery,
+        memory_protections: config.enable_memory_protections,
+        frontpage: !config.disable_frontpage,
+        tpm: config.enable_tpm,
+        guest_watchdog,
+        vpci_boot: config.enable_vpci_boot,
+        serial: config.enable_serial,
+        uefi_console_mode: config.uefi_console_mode,
+        default_boot_always_attempt: config.default_boot_always_attempt,
+        bios_guid: config.bios_guid,
+        vmbus: config.enable_vmbus,
+        force_dma_bounce: config.force_dma_bounce,
+    }
+}
 
 #[cfg(guest_arch = "x86_64")]
 const PM_BASE: u16 = 0x400;
@@ -3245,18 +3267,7 @@ impl LoadedVmInner {
             }
             &LoadMode::Uefi {
                 ref firmware,
-                enable_debugging,
-                enable_memory_protections,
-                disable_frontpage,
-                enable_tpm,
-                enable_battery,
-                enable_serial,
-                enable_vpci_boot,
-                uefi_console_mode,
-                default_boot_always_attempt,
-                bios_guid,
-                enable_vmbus,
-                force_dma_bounce,
+                config,
             } => {
                 let acpi_tables = [
                     // MADT
@@ -3279,21 +3290,8 @@ impl LoadedVmInner {
                 let acpi_tables: Vec<_> =
                     acpi_tables.iter().flatten().map(|t| t.as_ref()).collect();
 
-                let load_settings = super::vm_loaders::uefi::UefiLoadSettings {
-                    debugging: enable_debugging,
-                    memory_protections: enable_memory_protections,
-                    frontpage: !disable_frontpage,
-                    tpm: enable_tpm,
-                    battery: enable_battery,
-                    guest_watchdog: self.chipset_capabilities.with_guest_watchdog,
-                    vpci_boot: enable_vpci_boot,
-                    serial: enable_serial,
-                    uefi_console_mode,
-                    default_boot_always_attempt,
-                    bios_guid,
-                    vmbus: enable_vmbus,
-                    force_dma_bounce,
-                };
+                let load_settings =
+                    uefi_load_settings(config, self.chipset_capabilities.with_guest_watchdog);
                 let regs =
                     super::vm_loaders::uefi::load_uefi(&super::vm_loaders::uefi::LoadUefiParams {
                         firmware,
@@ -3353,9 +3351,13 @@ impl LoadedVmInner {
                 };
                 let (mut regs, initial_page_vis) = super::vm_loaders::igvm::load_igvm(params)?;
 
-                // The non-isolated UEFI IGVM file path uses the same fixed UEFI
-                // config GPA as direct UEFI. Supply the config blob OpenVMM
-                // normally builds for direct UEFI.
+                // HACK: The non-isolated UEFI IGVM file path uses the same fixed
+                // UEFI config GPA as direct UEFI, so patch in the config blob
+                // OpenVMM normally builds for direct UEFI. This is not suitable
+                // for measured CVM IGVMs: a page absent from the IGVM is not part
+                // of the measurement, and a page present in the IGVM would be
+                // mutated after load. Long term, UEFI should consume this via
+                // IGVM parameters or device tree instead.
                 if let Some(uefi_config) = uefi_config {
                     let acpi_tables = [
                         Some(madt.as_ref()),
@@ -3371,21 +3373,10 @@ impl LoadedVmInner {
                         &self.processor_topology,
                         &self.mem_layout,
                         &self.pcie_host_bridges,
-                        &super::vm_loaders::uefi::UefiLoadSettings {
-                            debugging: uefi_config.enable_debugging,
-                            battery: uefi_config.enable_battery,
-                            memory_protections: uefi_config.enable_memory_protections,
-                            frontpage: !uefi_config.disable_frontpage,
-                            tpm: uefi_config.enable_tpm,
-                            guest_watchdog: self.chipset_capabilities.with_guest_watchdog,
-                            vpci_boot: uefi_config.enable_vpci_boot,
-                            serial: uefi_config.enable_serial,
-                            uefi_console_mode: uefi_config.uefi_console_mode,
-                            default_boot_always_attempt: uefi_config.default_boot_always_attempt,
-                            bios_guid: uefi_config.bios_guid,
-                            vmbus: uefi_config.enable_vmbus,
-                            force_dma_bounce: uefi_config.force_dma_bounce,
-                        },
+                        &uefi_load_settings(
+                            uefi_config,
+                            self.chipset_capabilities.with_guest_watchdog,
+                        ),
                         &self.chipset_mmio,
                         &acpi_tables,
                     )?;
