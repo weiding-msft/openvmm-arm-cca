@@ -64,7 +64,7 @@ pub struct LoadUefiParams<'a> {
     pub acpi_tables: &'a [&'a [u8]],
 }
 
-pub fn build_config_blob(
+pub(crate) fn build_config_blob(
     processor_topology: &ProcessorTopology,
     mem_layout: &MemoryLayout,
     pcie_host_bridges: &[PcieHostBridge],

@@ -315,6 +315,8 @@ mod igvm {
         pub maximum_processor_count: u32,
         pub uefi_memory_map_offset: u32,
         pub uefi_memory_map_page_count: u32,
+        pub uefi_igvm_configuration_flags: u32,
+        pub secrets_page_offset: u32,
     }
 
     pub const UEFI_IGVM_LOADER_BLOCK_NUMBER_OF_PROCESSORS_FIELD_OFFSET: usize = 0;

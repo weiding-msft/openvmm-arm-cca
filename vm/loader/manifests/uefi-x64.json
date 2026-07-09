@@ -7,7 +7,7 @@
             "isolation_type": "none",
             "image": {
                 "uefi": {
-                    "config_type": "igvm"
+                    "config_type": "none"
                 }
             }
         },

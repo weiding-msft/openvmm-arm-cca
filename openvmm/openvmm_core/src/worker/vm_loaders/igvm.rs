@@ -25,6 +25,7 @@ use loader::importer::ImageLoad;
 use loader::importer::StartupMemoryType;
 use loader::importer::TableRegister;
 use loader::importer::X86Register;
+use loader::uefi;
 use memory_range::MemoryRange;
 use memory_range::subtract_ranges;
 use openvmm_defs::config::SerialInformation;
@@ -528,6 +529,8 @@ pub struct LoadIgvmParams<'a, T: ArchTopology> {
     pub entropy: Option<&'a [u8]>,
     /// Resolved chipset MMIO ranges for device tree and UEFI config.
     pub chipset_mmio: ChipsetMmioRanges,
+    /// Legacy UEFI configuration to load at the firmware's fixed config GPA.
+    pub uefi_config: Option<&'a [u8]>,
 }
 
 pub fn load_igvm(
@@ -571,6 +574,7 @@ fn load_igvm_x86(
         com_serial,
         entropy,
         chipset_mmio,
+        uefi_config,
     } = params;
 
     let ChipsetMmioRanges {
@@ -812,7 +816,6 @@ fn load_igvm_x86(
     vtl2_protectable_ram.sort_by_key(|r| r.start());
 
     let mut page_table_cpu_state: Option<CpuPagingState> = None;
-
     // If requested, filter to VTL2-related directives only.
     let pt_range = page_table_fixup.as_ref().map_or(MemoryRange::EMPTY, |x| {
         MemoryRange::new(x.gpa..x.gpa + x.size)
@@ -1196,6 +1199,18 @@ fn load_igvm_x86(
     }
 
     page_data.flush(&mut loader)?;
+
+    if let Some(config_blob) = uefi_config {
+        loader
+            .import_pages(
+                uefi::CONFIG_BLOB_GPA_BASE / HV_PAGE_SIZE,
+                (config_blob.len() as u64).div_ceil(HV_PAGE_SIZE),
+                "uefi-config-blob",
+                BootPageAcceptance::Exclusive,
+                config_blob,
+            )
+            .map_err(Error::Loader)?;
+    }
 
     // Apply page table relocations after all headers have been scanned.
     if let Some(offset) = relocation_offset {
