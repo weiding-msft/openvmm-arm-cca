@@ -1,0 +1,97 @@
+CCA IRQ regression test design
+==============================
+
+Goal
+----
+
+The current CCA OpenHCL processor backend observes CCA plane IRQ exits but
+does not handle them. The existing simple TMK boot test can still pass because
+it does not require an interrupt to be delivered to the lower VTL guest.
+
+The new test creates a case where forward progress depends on an IRQ being
+delivered. If the backend only logs and ignores the IRQ exit, the test times
+out and panics.
+
+Design
+------
+
+The test uses the AArch64 architectural virtual timer. This is a good fit
+because:
+
+1. tmk_vmm already configures the aarch64 virtual timer PPI as interrupt 20.
+2. The timer is CPU-local, so the test does not need extra devices or DMA.
+3. The failure mode is direct: no IRQ delivery means the timer handler never
+   runs.
+4. The test runs as part of the existing simple_tmk flow, so the current CCA
+   Petri test path exercises it automatically when it runs all TMK tests.
+
+Implementation
+--------------
+
+tmk_core now has minimal AArch64 IRQ support:
+
+- installs an EL1 exception vector table;
+- allows a test to register an IRQ handler with Scope::set_irq_handler;
+- enables/disables GIC SGI/PPI interrupts for the current VP;
+- restores the prior IRQ handler and IRQ mask when the scope exits;
+- exposes helpers to read and program CNTVCT/CNTFRQ/CNTV_CVAL/CNTV_CTL.
+
+simple_tmk adds:
+
+    aarch64::virtual_timer_irq
+
+The test:
+
+1. Registers an IRQ handler.
+2. Enables GIC PPI 20.
+3. Arms the virtual timer.
+4. Enables IRQ delivery.
+5. Spins until either the handler runs or a virtual-counter timeout expires.
+6. Panics with "virtual timer interrupt did not fire" if no IRQ arrives.
+
+Expected behavior
+-----------------
+
+With correct CCA IRQ handling:
+
+- the virtual timer expires;
+- the backend handles the CCA IRQ exit correctly;
+- the interrupt reaches the AArch64 TMK;
+- the IRQ handler observes INTID 20;
+- the test passes.
+
+With IRQ exits ignored:
+
+- the virtual timer expires;
+- the CCA backend sees an IRQ exit and resumes without injection/handling;
+- the TMK IRQ handler never runs;
+- the test panics after the timeout.
+
+Useful verification commands
+----------------------------
+
+Build/check the touched packages on the host:
+
+    cargo check --locked -p simple_tmk -p tmk_core
+    cargo clippy --locked -p tmk_core -p simple_tmk --all-targets
+
+Build the AArch64 minimal-rt TMK:
+
+    RUSTC_BOOTSTRAP=1 cargo build -p simple_tmk --config openhcl/minimal_rt/aarch64-config.toml
+
+Confirm the new test descriptor is present:
+
+    cargo run --locked -p tmk_vmm -- --tmk target/aarch64-minimal_rt-none/debug/simple_tmk --list
+
+Expected list output includes:
+
+    common::boot
+    aarch64::virtual_timer_irq
+
+Files changed
+-------------
+
+- tmk/tmk_core/src/lib.rs
+- tmk/tmk_core/src/aarch64.rs
+- tmk/simple_tmk/src/main.rs
+- tmk/simple_tmk/src/aarch64.rs

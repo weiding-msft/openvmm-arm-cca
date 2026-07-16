@@ -1,0 +1,575 @@
+OpenHCL CCA virtual-timer IRQ implementation design
+===================================================
+
+Status
+------
+
+Implemented and validated with:
+
+    cargo xflowey cca-tests
+
+The end-to-end CCA test passed with both AArch64 TMK tests completing:
+
+    common::boot
+    aarch64::virtual_timer_irq
+
+The purpose of this document is to describe the complete implementation,
+including the MMIO support needed by the test, the CCA IRQ exit handling,
+the GIC list-register injection, and the test-harness changes that make the
+result reliable.
+
+
+1. Problem statement
+--------------------
+
+The OpenHCL CCA processor backend previously recognized an RSI Plane N exit
+whose exit reason was IRQ, but it only logged the event and resumed. It did
+not convert the asserted interrupt source into virtual GIC state for the
+lower-plane guest.
+
+The old simple_tmk boot test did not expose this omission because it needed no
+interrupt. The new test uses the AArch64 architectural virtual timer and makes
+success depend on delivery of its PPI to Plane N.
+
+The first version of the test also exposed another missing piece. Plane N must
+program its virtual GIC through MMIO before it can receive the timer PPI. The
+CCA backend did not emulate the resulting MMIO data abort, so it repeatedly
+re-entered at the same faulting instruction. That looked like an infinite
+loop before the IRQ path was reached.
+
+The implemented solution therefore has two related parts:
+
+1. Emulate the GIC distributor and redistributor MMIO accesses made by the
+   TMK.
+2. On a CCA IRQ exit, recognize an asserted virtual timer and inject its PPI
+   through an RSI GIC list register.
+
+
+2. Execution layers
+-------------------
+
+The test crosses four layers:
+
+    Plane N simple_tmk
+        Programs GICv3 and CNTV, receives the IRQ, and completes the test.
+
+    Plane 0 tmk_vmm
+        Defines the Plane N virtual platform and emulates its GIC MMIO.
+
+    OpenHCL CCA processor backend
+        Handles RSI synchronous exits and IRQ exits, then updates the next
+        RSI plane-entry context.
+
+    RMM / RSI plane-run interface
+        Runs Plane N and returns its register, GIC, timer, and exit state to
+        Plane 0.
+
+The important data flow is:
+
+    simple_tmk arms CNTV
+        -> timer output becomes asserted
+        -> RMM returns an IRQ plane exit
+        -> OpenHCL reads CNTV_CTL_EL0 from the RSI exit block
+        -> OpenHCL creates a pending software GIC LR for the timer PPI
+        -> RMM re-enters Plane N with that LR
+        -> Plane N acknowledges the PPI through ICC_IAR1_EL1
+        -> the TMK callback disables CNTV and records completion
+        -> Plane N writes ICC_EOIR1_EL1
+
+
+3. Virtual platform and interrupt identity
+------------------------------------------
+
+tmk_vmm builds the AArch64 processor topology with a GICv3 distributor,
+redistributor range, and architectural timer PPI. For the current test
+platform the values are shared through tmk_protocol and topology data:
+
+    GIC distributor base:   0xff000000
+    GIC redistributor base: 0xff020000
+    virtual timer PPI:      20
+
+The CCA backend does not hardcode PPI 20. CcaBackedShared receives
+partition_params.topology.virt_timer_ppi() when the partition is constructed.
+This keeps interrupt injection consistent with the virtual platform presented
+by tmk_vmm.
+
+
+4. Plane N GIC MMIO support
+---------------------------
+
+4.1 Software GIC in tmk_vmm
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+tmk_vmm owns a TmkGic object for AArch64 guests. TmkGic contains:
+
+    virt_support_gic::Distributor
+    distributor IPA range
+    redistributor IPA range
+
+The ranges are derived from ProcessorTopology rather than duplicated inside
+the emulator. One redistributor is registered for each virtual processor.
+
+IoHandler implements CpuIo as follows:
+
+    is_mmio(address)
+        Returns true for distributor or redistributor addresses.
+
+    read_mmio(address, data)
+        Routes GIC accesses to Distributor::read.
+
+    write_mmio(address, data)
+        Routes GIC accesses to Distributor::write.
+
+The pre-existing TMK command page at 0xffff0000 remains a special write path.
+
+
+4.2 CCA data-abort decoding
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An MMIO access by Plane N exits through RSI as a synchronous data abort. The
+CCA backend decodes ESR_EL2 using IssDataAbort.
+
+The implementation requires ISV to be set. ISV means the instruction syndrome
+contains enough information to emulate the access without decoding the guest
+instruction manually. If ISV is clear, the backend reports a fatal
+InvalidDataAbortIss error rather than guessing.
+
+The relevant syndrome fields are:
+
+    SAS
+        Access size. The byte length is 1 << SAS, producing 1, 2, 4, or 8.
+
+    SRT
+        Source or target architectural register.
+
+    WnR
+        1 for a write, 0 for a read.
+
+    SSE
+        Whether a read result is sign extended.
+
+    SF
+        Whether the destination is a 64-bit register.
+
+FAR_EL2 supplies the faulting IPA.
+
+
+4.3 MMIO write handling
+~~~~~~~~~~~~~~~~~~~~~~~
+
+For a write:
+
+1. Read the source GPR from the RSI exit GPR array.
+2. Treat SRT 31 as the architectural zero register and use value zero.
+3. Select the low 1, 2, 4, or 8 bytes.
+4. Call CpuIo::write_mmio for the faulting IPA.
+5. Advance the Plane N entry PC by four bytes.
+
+Advancing the PC is essential. Without it, Plane N re-executes the same store
+after every re-entry and loops forever.
+
+
+4.4 MMIO read handling
+~~~~~~~~~~~~~~~~~~~~~~
+
+For a read:
+
+1. Allocate an eight-byte zeroed temporary value.
+2. Ask CpuIo::read_mmio to fill the requested low bytes.
+3. Apply zero extension or sign extension according to SSE, SF, and the access
+   size.
+4. Write the result to the Plane N entry GPR unless SRT is register 31.
+5. Advance the Plane N entry PC by four bytes.
+
+The helper extend_mmio_read centralizes the AArch64 extension rules. For a
+32-bit destination, the upper 32 bits are cleared even after sign extension
+to the architectural W register.
+
+
+5. Why the test performs MMIO polling
+-------------------------------------
+
+In the current RMM/FVP environment, a Plane N virtual-timer output transition
+is not sufficient to wake Plane 0 while Plane N remains in a pure userspace
+spin loop. Plane 0 needs another Plane N exit before it can observe the timer
+state and perform injection.
+
+tmk_core therefore exposes:
+
+    aarch64::poll_interrupts()
+
+This helper reads GICD_CTLR. The read is a harmless GIC MMIO operation, but it
+causes a synchronous RSI exit. While waiting for the atomic completion flag,
+the timer test calls poll_interrupts on each iteration.
+
+This is intentionally a test-environment mechanism. It gives the CCA backend
+regular opportunities to observe the timer output. It is not intended to be
+the final production design for asynchronous physical interrupt notification.
+
+
+6. Correct RSI exit layout
+--------------------------
+
+The timer state was initially read from the wrong location because
+cca_rsi_plane_exit placed timer fields directly after the virtual GIC fields.
+The RMM ABI divides the exit structure into 0x100-byte regions.
+
+The implemented layout is:
+
+    0x000 - 0x0ff    exit reason
+    0x100 - 0x1ff    ELR, ESR, FAR, HPFAR, and PSTATE
+    0x200 - 0x2ff    GPRs
+    0x300 - 0x3ff    virtual GIC state
+    0x400             CNTP_CTL_EL0
+    0x408             CNTP_CVAL_EL0
+    0x410             CNTV_CTL_EL0
+    0x418             CNTV_CVAL_EL0
+    0x420 - 0x4ff    padding
+
+Consequently:
+
+    sizeof(cca_rsi_plane_exit) == 0x500
+
+Compile-time assertions now verify both the total size and the two important
+timer offsets:
+
+    offset_of(cntp_ctl_el0) == 0x400
+    offset_of(cntv_ctl_el0) == 0x410
+
+Without this correction, OpenHCL sees zero or unrelated GIC padding where it
+expects CNTV_CTL_EL0 and cannot determine that the timer is asserted.
+
+
+7. Distinguishing a real RSI exit from a host wakeup
+----------------------------------------------------
+
+ProcessorRunner::run returns a boolean indicating whether an intercept should
+be processed. In this CCA environment, the underlying return-to-lower-VTL
+ioctl can also return successfully for an outer host IRQ without the RMM
+writing a new Plane N exit block.
+
+If OpenHCL processed the old block again, it could duplicate a previous MMIO
+operation or IRQ decision.
+
+Before every entry, the backend writes an impossible sentinel value to:
+
+    plane_run.exit.exit_reason = u64::MAX
+
+It processes an exit only when both conditions are true:
+
+    runner.run() reports an intercept
+    exit_reason no longer equals the sentinel
+
+This protects against stale RSI exit data while preserving the existing
+ProcessorRunner cancellation behavior.
+
+
+8. Preserving Plane N state across exits
+----------------------------------------
+
+The RMM writes exit state to the RSI exit half of the run page. OpenHCL must
+copy the state needed for re-entry into the entry half.
+
+The implementation preserves:
+
+    all 31 GPRs
+    PC, taken from ELR_EL2
+    PSTATE
+    GICv3 HCR
+    all 16 GIC list registers
+
+PSTATE preservation is especially important for IRQ handling because it
+contains the guest interrupt mask. Losing it can re-enter the guest with a
+different IRQ mask than the interrupted context.
+
+List-register preservation is also required before adding the timer. The RMM
+may return active or pending virtual interrupts in the exit LR array. Starting
+from zero on every exit would lose that virtual GIC state.
+
+
+9. Detecting an asserted virtual timer
+--------------------------------------
+
+CNTV_CTL_EL0 contains three relevant low bits:
+
+    bit 0 ENABLE
+    bit 1 IMASK
+    bit 2 ISTATUS
+
+The timer should be injected only when:
+
+    ENABLE  = 1
+    IMASK   = 0
+    ISTATUS = 1
+
+The implemented condition is equivalent to:
+
+    cntv_ctl_el0 & 0b111 == 0b101
+
+An IRQ exit without this condition is not treated as a timer interrupt. It is
+currently traced and the backend resumes Plane N. This leaves room for future
+handling of additional CCA interrupt sources.
+
+
+10. GIC list-register injection
+-------------------------------
+
+10.1 LR fields used
+~~~~~~~~~~~~~~~~~~~
+
+The virtual timer is injected as a software-backed Group 1 interrupt. The LR
+contains:
+
+    bits 31:0    virtual INTID
+    bits 55:48   priority, currently 0x80
+    bit 60       Group 1
+    bit 61       HW = 0, because this is a software LR
+    bits 63:62   state = 01, Pending
+
+No physical INTID is required because HW is clear.
+
+
+10.2 Duplicate suppression
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before allocating a new LR, inject_virtual_interrupt scans all LRs for a
+non-invalid entry with the same virtual INTID.
+
+If one exists, the function succeeds without modifying it. In particular, it
+does not turn an Active LR into Pending+Active. The existing LR represents the
+authoritative virtual GIC state returned by the RMM.
+
+This prevents repeated timer exits from creating duplicate PPIs while the
+guest is acknowledging or handling the first one.
+
+
+10.3 Free-LR allocation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+An LR is free when its two state bits are zero. The implementation selects the
+first free LR and writes the pending Group 1 timer interrupt into it.
+
+If all 16 LRs are occupied and no matching timer LR exists, the backend raises
+NoFreeGicListRegister as a fatal VP error. Silently dropping the interrupt
+would make the guest hang and would hide a virtual GIC capacity problem.
+
+
+10.4 Why the EOI-maintenance bit is not set
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An earlier experiment set the LR EOI-maintenance bit. With this RMM/FVP path,
+that caused an endless maintenance-exit loop when Plane N executed
+ICC_EOIR1_EL1. The guest callback ran, but execution could not progress past
+EOI.
+
+The final software LR deliberately leaves the EOI-maintenance bit clear. The
+RMM can complete the normal LR state transition without requiring a
+maintenance interrupt path that OpenHCL CCA does not yet implement.
+
+
+11. Plane N IRQ handling
+------------------------
+
+tmk_core provides the minimal EL1 IRQ machinery needed by the regression
+test:
+
+1. Install an EL1 exception vector table through VBAR_EL1.
+2. Register a scoped IRQ callback.
+3. Enable the GIC distributor Group 1 path and affinity routing.
+4. Wake the current redistributor.
+5. Configure PPI 20 as Group 1 with priority 0x80.
+6. Enable the PPI and the ICC Group 1 system-register interface.
+7. Unmask PSTATE.I.
+
+On IRQ entry, the handler:
+
+1. Reads ICC_IAR1_EL1.
+2. Rejects special/spurious INTIDs at or above 1020.
+3. Calls the registered test callback.
+4. Writes the INTID to ICC_EOIR1_EL1.
+
+The timer callback verifies INTID 20, disables CNTV, and sets an AtomicBool.
+Disabling the timer deasserts the level-sensitive timer source before EOI.
+
+Scope cleanup restores the previous IRQ handler and interrupt-mask state, so
+one TMK test cannot leak interrupt configuration into another test.
+
+
+12. Regression-test behavior
+----------------------------
+
+The aarch64::virtual_timer_irq test performs these steps:
+
+1. Register the timer callback.
+2. Enable the virtual timer PPI in the emulated GIC.
+3. Read CNTFRQ_EL0 and CNTVCT_EL0.
+4. Program CNTV_CVAL_EL0 for approximately 10 ms in the future.
+5. Enable CNTV and unmask IRQs.
+6. Poll GICD_CTLR while waiting for the callback flag.
+7. Stop waiting after one virtual-counter second.
+8. Mask IRQs, disable CNTV, and disable the PPI.
+9. Assert that the callback flag was set.
+
+With the implemented backend:
+
+    timer expires
+        -> IRQ exit
+        -> LR injection
+        -> callback runs
+        -> test passes
+
+If the CCA backend goes back to ignoring IRQ exits, the callback cannot set
+the flag. Depending on how aggressively the RMM repeats the asserted IRQ exit,
+the TMK or the outer harness times out. In either case, the test cannot emit
+its success marker.
+
+
+13. Petri harness reliability
+-----------------------------
+
+The cached CCA rootfs can contain an older start-tmk.sh. Relying on that script
+made the test result depend on when the rootfs package was built. Some cached
+versions ran tmk_vmm twice and returned to a prompt without printing PASS.
+
+The Petri test now sends a self-contained Plane N shell command that:
+
+1. Creates /root/mount.
+2. Mounts the fresh /cca 9P share.
+3. Changes into that directory.
+4. Runs the newly built tmk_vmm and simple_tmk.
+5. Emits TMK_TESTS_PASSED only if every preceding command succeeds.
+
+The success token in the command line is intentionally split with shell
+quoting:
+
+    TMK_TESTS_'PASSED'
+
+The serial terminal echoes the command line. If the literal success token were
+present in that echo, Petri could report success before tmk_vmm ran. Shell word
+concatenation produces TMK_TESTS_PASSED only when the final echo executes.
+
+The rootfs injection helper also no longer invokes a system-wide sync command.
+A successful unmount already flushes the loop-mounted filesystem. A global
+sync can block indefinitely on unrelated WSL mounts or stale emulator images,
+which is unrelated to CCA correctness.
+
+
+14. Failure behavior and diagnostics
+------------------------------------
+
+The implementation fails explicitly for conditions it cannot handle safely:
+
+    invalid data-abort syndrome
+        The MMIO instruction cannot be emulated from ESR_EL2.
+
+    unknown exception class
+        No defined CCA emulation exists for that synchronous exit.
+
+    unknown plane exit reason
+        The RMM returned an unsupported exit type.
+
+    no free GIC LR
+        The timer cannot be represented without losing another interrupt.
+
+The Petri output scanner also rejects known guest failure markers such as:
+
+    test failed
+    some tests failed
+    Kernel panic
+    panicked at
+    [realm-launch][ERROR]
+
+
+15. Important invariants
+------------------------
+
+The implementation depends on the following invariants:
+
+1. The timer PPI injected by OpenHCL is taken from the same ProcessorTopology
+   used to describe the Plane N GIC.
+2. RSI timer fields are read at their ABI-defined 0x400 region.
+3. A host wakeup cannot cause stale RSI exit data to be processed.
+4. Every emulated MMIO instruction advances PC exactly once.
+5. Existing valid LR state is copied before adding a new interrupt.
+6. A matching valid timer LR is never duplicated or rewritten.
+7. The timer is injected only while enabled, unmasked, and asserted.
+8. The timer source is disabled by the guest callback before EOI.
+9. The software LR does not request EOI maintenance handling.
+10. Petri observes a success marker generated after tmk_vmm exits cleanly,
+    not the terminal's command echo.
+
+
+16. Current limitations
+-----------------------
+
+This is intentionally the minimum complete path needed for the CCA regression
+test. It is not yet a general CCA interrupt controller implementation.
+
+Current limitations include:
+
+1. Only the architectural virtual timer is recognized on the IRQ exit path.
+2. OpenHCL process_interrupts and poll_apic remain unimplemented for CCA.
+3. GIC maintenance interrupt handling is not implemented.
+4. LR allocation is first-free; there is no priority-based eviction or
+   pending-interrupt queue beyond the hardware LR set.
+5. Instruction-abort emulation is still unimplemented.
+6. Data aborts without a valid syndrome are not instruction-decoded.
+7. MMIO polling is a test workaround for the current RMM/FVP notification
+   behavior, not the desired long-term asynchronous IRQ mechanism.
+8. The TMK helper currently supports only SGI/PPI INTIDs below 32.
+
+A broader implementation should introduce a generic pending-interrupt model,
+integrate CCA with the normal OpenHCL interrupt-delivery hooks, and define how
+maintenance events and multiple interrupt sources are queued.
+
+
+17. Files involved
+------------------
+
+CCA backend and RSI ABI:
+
+    openhcl/virt_mshv_vtl/src/lib.rs
+    openhcl/virt_mshv_vtl/src/processor/cca/mod.rs
+    vm/aarch64/aarch64defs/src/rsi.rs
+
+Plane 0 software GIC and MMIO routing:
+
+    tmk/tmk_vmm/src/run.rs
+
+Plane N IRQ support and regression test:
+
+    tmk/tmk_core/src/aarch64.rs
+    tmk/simple_tmk/src/aarch64.rs
+
+End-to-end CCA harness:
+
+    vmm_tests/vmm_tests/tests/cca.rs
+
+
+18. Validation performed
+------------------------
+
+Focused compilation:
+
+    cargo check --locked -p tmk_vmm --target aarch64-unknown-linux-gnu
+
+    RUSTC_BOOTSTRAP=1 cargo check --locked -p simple_tmk \
+        --config openhcl/minimal_rt/aarch64-config.toml
+
+    cargo check --locked -p vmm_tests --test cca
+
+Formatting and patch validation:
+
+    rustfmt --check --edition 2024 <changed Rust files>
+    git diff --check
+
+End-to-end validation:
+
+    cargo xflowey cca-tests
+
+Observed result:
+
+    aarch64::virtual_timer_irq: passed
+    TMK_TESTS_PASSED: observed by Petri
+    CCA Petri test: 1 passed, 0 failed
+
