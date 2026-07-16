@@ -291,6 +291,14 @@ pub fn disable_virtual_timer() {
     }
 }
 
+/// Polls the emulated GIC while waiting for an interrupt.
+///
+/// This gives VMMs that emulate the GIC a regular exit on which to observe
+/// changes to interrupt sources that are managed outside the guest.
+pub fn poll_interrupts() {
+    let _ = read_reg32(GICD_CTLR);
+}
+
 #[cfg_attr(not(minimal_rt), expect(dead_code))]
 extern "C" fn irq_handler() {
     let intid = read_icc_iar1();

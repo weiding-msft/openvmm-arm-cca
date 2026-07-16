@@ -19,9 +19,15 @@ use std::time::Duration;
 use std::time::Instant;
 
 const CCA_TEST_TIMEOUT: Duration = Duration::from_secs(20 * 60);
-const CCA_TEST_SUCCESS_MARKER: &str = "PASS";
+const CCA_TEST_SUCCESS_MARKER: &str = "TMK_TESTS_PASSED";
 const CCA_PLANE0_PROMPT: &str = "sh-5.2#";
-const CCA_START_TMK_COMMAND: &str = "/root/busybox sh /root/start-tmk.sh";
+const CCA_START_TMK_COMMAND: &str = concat!(
+    "/root/busybox mkdir -p /root/mount",
+    " && /root/busybox mount -t 9p -o trans=virtio cca_mount /root/mount",
+    " && cd /root/mount",
+    " && ./tmk_vmm --hv cca --tmk ./simple_tmk",
+    " && /root/busybox echo TMK_TESTS_'PASSED'",
+);
 const CCA_OUTPUT_WINDOW_SIZE: usize = 64 * 1024;
 const CCA_TEST_FAILURE_MARKERS: &[&str] = &[
     "test failed",
@@ -276,8 +282,6 @@ fn inject_files_into_cca_rootfs(rootfs_file: &Path, files: &[(&Path, &str)]) -> 
             )?;
         }
 
-        run_sudo("sync guest rootfs writes", &[OsStr::new("sync")])?;
-
         Ok(())
     })();
 
@@ -294,10 +298,6 @@ fn inject_files_into_cca_rootfs(rootfs_file: &Path, files: &[(&Path, &str)]) -> 
         }) {
             tracing::warn!(error = err.as_ref() as &dyn std::error::Error, "{err:#}");
         }
-    }
-
-    if let Err(err) = run_sudo("sync host writes", &[OsStr::new("sync")]) {
-        tracing::warn!(error = err.as_ref() as &dyn std::error::Error, "{err:#}");
     }
 
     thread::sleep(Duration::from_secs(1));

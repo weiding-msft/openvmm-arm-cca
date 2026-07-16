@@ -35,6 +35,7 @@ fn virtual_timer_irq(t: TestContext<'_>) {
         while !timer_fired.load(Relaxed)
             && aarch64::read_cntvct().wrapping_sub(start) < timeout_ticks
         {
+            aarch64::poll_interrupts();
             core::hint::spin_loop();
         }
 
