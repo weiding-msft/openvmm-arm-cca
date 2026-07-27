@@ -93,6 +93,8 @@ struct CcaVtl {
     sp_el0: u64,
     sp_el1: u64,
     cpsr: u64,
+    #[inspect(skip)]
+    pending_interrupt: Option<CcaVirtualInterrupt>,
 }
 
 impl CcaVtl {
@@ -101,6 +103,24 @@ impl CcaVtl {
             sp_el0: 0,
             sp_el1: 0,
             cpsr: 0,
+            pending_interrupt: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CcaVirtualInterrupt {
+    intid: u32,
+    priority: u8,
+    group1: bool,
+}
+
+impl CcaVirtualInterrupt {
+    fn group1(intid: u32) -> Self {
+        Self {
+            intid,
+            priority: DEFAULT_GIC_PRIORITY,
+            group1: true,
         }
     }
 }
@@ -197,11 +217,10 @@ impl<'a> CcaExit<'a> {
     }
 }
 
-fn inject_virtual_interrupt(lrs: &mut [u64], intid: u32) -> bool {
-    if lrs
-        .iter()
-        .any(|lr| *lr & ICH_LR_STATE_MASK != 0 && *lr & ICH_LR_VINTID_MASK == u64::from(intid))
-    {
+fn inject_virtual_interrupt(lrs: &mut [u64], interrupt: CcaVirtualInterrupt) -> bool {
+    if lrs.iter().any(|lr| {
+        *lr & ICH_LR_STATE_MASK != 0 && *lr & ICH_LR_VINTID_MASK == u64::from(interrupt.intid)
+    }) {
         return true;
     }
 
@@ -209,9 +228,9 @@ fn inject_virtual_interrupt(lrs: &mut [u64], intid: u32) -> bool {
         return false;
     };
 
-    *lr = u64::from(intid)
-        | (u64::from(DEFAULT_GIC_PRIORITY) << ICH_LR_PRIORITY_SHIFT)
-        | ICH_LR_GROUP1
+    *lr = u64::from(interrupt.intid)
+        | (u64::from(interrupt.priority) << ICH_LR_PRIORITY_SHIFT)
+        | if interrupt.group1 { ICH_LR_GROUP1 } else { 0 }
         | ICH_LR_PENDING;
     true
 }
@@ -302,6 +321,7 @@ impl BackingPrivate for CcaBacked {
         // no clue what they're about, potentially some VBS stuff?
 
         // TODO: CCA: NEXT: move this to `init`?
+        this.inject_pending_virtual_interrupts(dev)?;
         this.set_plane_enter();
         this.runner.cca_rsi_plane_run_mut().exit.exit_reason = RSI_PLANE_EXIT_INVALID;
 
@@ -411,16 +431,8 @@ impl BackingPrivate for CcaBacked {
                 }
                 PlaneExitReason::Irq => {
                     if cca_exit.virtual_timer_asserted() {
-                        let intid = this.shared.virt_timer_ppi;
-                        if !inject_virtual_interrupt(
-                            &mut this.runner.cca_rsi_plane_entry().gicv3_lrs,
-                            intid,
-                        ) {
-                            return Err(dev.fatal_error(
-                                CcaUnsupportedExit::NoFreeGicListRegister(intid).into(),
-                            ));
-                        }
-                        tracing::debug!(intid, "injected CCA virtual timer interrupt");
+                        this.queue_virtual_timer_interrupt(this.backing.cvm.exit_vtl);
+                        this.inject_pending_virtual_interrupts(dev)?;
                     } else {
                         tracing::trace!("CCA IRQ exit had no asserted virtual timer");
                     }
@@ -502,6 +514,39 @@ impl UhProcessor<'_, CcaBacked> {
 
     fn set_plane_enter(&mut self) {
         self.runner.cca_set_plane_enter();
+    }
+
+    fn queue_virtual_timer_interrupt(&mut self, vtl: GuestVtl) {
+        let interrupt = CcaVirtualInterrupt::group1(self.shared.virt_timer_ppi);
+        self.backing.vtls[vtl].pending_interrupt = Some(interrupt);
+        tracing::trace!(
+            intid = interrupt.intid,
+            ?vtl,
+            "queued CCA virtual timer interrupt"
+        );
+    }
+
+    fn inject_pending_virtual_interrupts(&mut self, dev: &impl CpuIo) -> Result<(), VpHaltReason> {
+        let vtl = self.backing.cvm.exit_vtl;
+        let Some(interrupt) = self.backing.vtls[vtl].pending_interrupt else {
+            return Ok(());
+        };
+
+        if !inject_virtual_interrupt(&mut self.runner.cca_rsi_plane_entry().gicv3_lrs, interrupt) {
+            return Err(
+                dev.fatal_error(CcaUnsupportedExit::NoFreeGicListRegister(interrupt.intid).into())
+            );
+        }
+
+        self.backing.vtls[vtl].pending_interrupt = None;
+        tracing::debug!(
+            intid = interrupt.intid,
+            priority = interrupt.priority,
+            group1 = interrupt.group1,
+            ?vtl,
+            "injected CCA virtual interrupt"
+        );
+        Ok(())
     }
 
     // Copy the exit context to the entry context.
