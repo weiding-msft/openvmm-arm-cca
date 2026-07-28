@@ -18,7 +18,9 @@ use crate::UhPartitionInner;
 use crate::processor::InterceptMessageState;
 use aarch64defs::EsrEl2;
 use aarch64defs::IssDataAbort;
+use aarch64defs::IssSystem;
 use aarch64defs::SystemReg;
+use aarch64defs::gic::GicrSgi;
 use aarch64defs::rsi::cca_rsi_plane_exit;
 use hcl::GuestVtl;
 use hcl::ioctl::cca::Cca;
@@ -51,12 +53,18 @@ enum CcaUnsupportedExit {
     InvalidDataAbortIss(u64),
     #[error("no free pending CCA GIC slot for virtual interrupt {0}")]
     NoFreePendingGicInterrupt(u32),
+    #[error("unsupported CCA system register trap for {system_reg:?} in ESR_EL2 {esr_el2:#x}")]
+    UnsupportedSystemRegister { system_reg: SystemReg, esr_el2: u64 },
+    #[error("invalid CCA ICC_SGI1R_EL1 value {0:#x}")]
+    InvalidSgiValue(u64),
 }
 
 const AARCH64_ZERO_REGISTER_INDEX: u8 = 31;
 const CNTV_CTL_ENABLE: u64 = 1 << 0;
 const CNTV_CTL_IMASK: u64 = 1 << 1;
 const CNTV_CTL_ISTATUS: u64 = 1 << 2;
+
+const ICH_HCR_TC: u64 = 1 << 10;
 
 const ICH_LR_VINTID_MASK: u64 = u32::MAX as u64;
 const ICH_LR_PRIORITY_SHIFT: u32 = 48;
@@ -179,6 +187,7 @@ enum ExceptionClass {
     InstructionAbort,
     SimdAccess,
     SmcError,
+    SystemRegister,
     Unknown(u8),
 }
 
@@ -189,6 +198,7 @@ impl From<u8> for ExceptionClass {
             0b0010_0000 => ExceptionClass::InstructionAbort,
             0b0000_0111 => ExceptionClass::SimdAccess,
             0b0001_0111 => ExceptionClass::SmcError,
+            0b0001_1000 => ExceptionClass::SystemRegister,
             _ => ExceptionClass::Unknown(value),
         }
     }
@@ -442,6 +452,12 @@ impl BackingPrivate for CcaBacked {
                         ExceptionClass::SmcError => {
                             tracing::warn!("SmcError exception triggered, but not handled");
                         }
+                        ExceptionClass::SystemRegister => {
+                            let iss = IssSystem::from(esr_el2.iss());
+                            let source_value = cca_exit.gpr_or_zero_register(iss.rt());
+                            let exit_esr_el2 = cca_exit.0.esr_el2;
+                            this.handle_system_register_trap(iss, source_value, exit_esr_el2, dev)?;
+                        }
                         ExceptionClass::Unknown(exception_class) => {
                             tracing::warn!(
                                 exception_class,
@@ -459,7 +475,12 @@ impl BackingPrivate for CcaBacked {
                     }
                 }
                 PlaneExitReason::Irq => {
-                    if cca_exit.virtual_timer_asserted() {
+                    if matches!(cca_exit.esr_el2_class(), ExceptionClass::SystemRegister) {
+                        let iss = IssSystem::from(esr_el2.iss());
+                        let source_value = cca_exit.gpr_or_zero_register(iss.rt());
+                        let exit_esr_el2 = cca_exit.0.esr_el2;
+                        this.handle_system_register_trap(iss, source_value, exit_esr_el2, dev)?;
+                    } else if cca_exit.virtual_timer_asserted() {
                         this.request_virtual_timer_interrupt(this.backing.cvm.exit_vtl, dev)?;
                     } else {
                         tracing::trace!("CCA IRQ exit had no asserted virtual timer");
@@ -547,6 +568,7 @@ impl UhProcessor<'_, CcaBacked> {
 
     fn set_plane_enter(&mut self) {
         self.runner.cca_set_plane_enter();
+        self.runner.cca_rsi_plane_entry().gicv3_hcr |= ICH_HCR_TC;
     }
 
     fn request_virtual_timer_interrupt(
@@ -559,6 +581,81 @@ impl UhProcessor<'_, CcaBacked> {
             CcaVirtualInterrupt::group1(self.shared.virt_timer_ppi),
             dev,
         )
+    }
+
+    fn handle_system_register_trap(
+        &mut self,
+        iss: IssSystem,
+        source_value: Option<u64>,
+        exit_esr_el2: u64,
+        dev: &impl CpuIo,
+    ) -> Result<(), VpHaltReason> {
+        let system_reg = iss.system_reg();
+
+        match system_reg {
+            SystemReg::ICC_PMR_EL1 if !iss.direction() => {
+                tracing::trace!("ignored CCA ICC_PMR_EL1 write");
+                self.runner.cca_rsi_plane_entry().pc += 4;
+            }
+            SystemReg::ICC_SGI1R_EL1 if !iss.direction() => {
+                let Some(value) = source_value else {
+                    tracing::warn!(
+                        rt = iss.rt(),
+                        "CCA ICC_SGI1R_EL1 write has source register outside RSI GPR array"
+                    );
+                    return Err(
+                        dev.fatal_error(CcaUnsupportedExit::InvalidSgiValue(exit_esr_el2).into())
+                    );
+                };
+
+                self.handle_icc_sgi1r_el1_write(value, dev)?;
+                self.runner.cca_rsi_plane_entry().pc += 4;
+            }
+            _ => {
+                tracing::warn!(
+                    ?system_reg,
+                    esr_el2 = exit_esr_el2,
+                    "unsupported CCA system register trap"
+                );
+                return Err(dev.fatal_error(
+                    CcaUnsupportedExit::UnsupportedSystemRegister {
+                        system_reg,
+                        esr_el2: exit_esr_el2,
+                    }
+                    .into(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_icc_sgi1r_el1_write(
+        &mut self,
+        value: u64,
+        dev: &impl CpuIo,
+    ) -> Result<(), VpHaltReason> {
+        let sgi = GicrSgi::from(value);
+        let intid = sgi.intid();
+
+        if sgi.irm() || sgi.target_list() != 0 {
+            let vtl = self.backing.cvm.exit_vtl;
+            self.request_gic_interrupt(vtl, CcaVirtualInterrupt::group1(intid), dev)?;
+            tracing::debug!(
+                intid,
+                ?vtl,
+                value,
+                "queued CCA self SGI from ICC_SGI1R_EL1 write"
+            );
+        } else {
+            tracing::trace!(
+                intid,
+                value,
+                "ignored CCA ICC_SGI1R_EL1 write that does not target current VP"
+            );
+        }
+
+        Ok(())
     }
 
     fn request_gic_interrupt(

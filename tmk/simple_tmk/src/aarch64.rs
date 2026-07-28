@@ -49,3 +49,38 @@ fn virtual_timer_irq(t: TestContext<'_>) {
         "virtual timer interrupt did not fire"
     );
 }
+
+#[tmk_test]
+fn sgi_self_irq(t: TestContext<'_>) {
+    const TEST_SGI: u32 = 5;
+
+    let sgi_fired = AtomicBool::new(false);
+    let sgi_isr = |ctx: &mut aarch64::IrqContext| {
+        if ctx.intid == TEST_SGI {
+            sgi_fired.store(true, Relaxed);
+        }
+    };
+
+    t.scope.subscope(|s| {
+        s.set_irq_handler(&sgi_isr);
+        s.enable_gic_irq(TEST_SGI);
+        s.enable_interrupts();
+
+        aarch64::send_sgi_to_self(TEST_SGI);
+
+        let frequency = aarch64::read_cntfrq();
+        let start = aarch64::read_cntvct();
+        let timeout_ticks = core::cmp::max(frequency, 1);
+
+        while !sgi_fired.load(Relaxed) && aarch64::read_cntvct().wrapping_sub(start) < timeout_ticks
+        {
+            aarch64::poll_interrupts();
+            core::hint::spin_loop();
+        }
+
+        s.disable_interrupts();
+        s.disable_gic_irq(TEST_SGI);
+    });
+
+    assert!(sgi_fired.load(Relaxed), "self SGI interrupt did not fire");
+}

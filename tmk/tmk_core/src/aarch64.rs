@@ -299,6 +299,31 @@ pub fn poll_interrupts() {
     let _ = read_reg32(GICD_CTLR);
 }
 
+/// Sends a Group 1 SGI to the current VP.
+pub fn send_sgi_to_self(intid: u32) {
+    assert!(intid < 16, "SGI INTID must be in the range 0..16");
+
+    let mpidr = read_mpidr();
+    let aff0 = mpidr & 0xff;
+    let aff1 = (mpidr >> 8) & 0xff;
+    let aff2 = (mpidr >> 16) & 0xff;
+    let aff3 = (mpidr >> 32) & 0xff;
+
+    assert!(aff0 < 16, "simple SGI target list only supports Aff0 < 16");
+
+    let value =
+        (aff3 << 48) | (aff2 << 32) | (u64::from(intid) << 24) | (aff1 << 16) | (1u64 << aff0);
+
+    // SAFETY: programming ICC_SGI1R_EL1 is expected for SGI tests.
+    unsafe {
+        core::arch::asm!(
+            "msr ICC_SGI1R_EL1, {value}",
+            "isb",
+            value = in(reg) value,
+        );
+    }
+}
+
 #[cfg_attr(not(minimal_rt), expect(dead_code))]
 extern "C" fn irq_handler() {
     let intid = read_icc_iar1();
@@ -396,6 +421,15 @@ fn write_icc_eoir1(intid: u32) {
     unsafe {
         core::arch::asm!("msr ICC_EOIR1_EL1, {value}", value = in(reg) intid as u64);
     }
+}
+
+fn read_mpidr() -> u64 {
+    let value: u64;
+    // SAFETY: reading MPIDR_EL1 is side-effect free.
+    unsafe {
+        core::arch::asm!("mrs {value}, MPIDR_EL1", value = out(reg) value);
+    }
+    value
 }
 
 fn read_reg32(address: usize) -> u32 {
