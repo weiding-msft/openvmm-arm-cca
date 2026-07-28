@@ -223,6 +223,14 @@ impl From<u64> for PlaneExitReason {
     }
 }
 
+struct CcaLocalInterruptExit {
+    exception_class: ExceptionClass,
+    esr_el2: EsrEl2,
+    source_value: Option<u64>,
+    exit_esr_el2: u64,
+    virtual_timer_asserted: bool,
+}
+
 /// A wrapper around the CCA RSI plane exit structure, providing methods to
 /// access information regarding the exit of the plane.
 struct CcaExit<'a>(&'a cca_rsi_plane_exit);
@@ -254,6 +262,25 @@ impl<'a> CcaExit<'a> {
     fn virtual_timer_asserted(&self) -> bool {
         self.0.cntv_ctl_el0 & (CNTV_CTL_ENABLE | CNTV_CTL_IMASK | CNTV_CTL_ISTATUS)
             == CNTV_CTL_ENABLE | CNTV_CTL_ISTATUS
+    }
+
+    fn local_interrupt_exit(&self) -> CcaLocalInterruptExit {
+        let esr_el2 = self.esr_el2();
+        let exception_class = self.esr_el2_class();
+        let source_value = if matches!(exception_class, ExceptionClass::SystemRegister) {
+            let iss = IssSystem::from(esr_el2.iss());
+            self.gpr_or_zero_register(iss.rt())
+        } else {
+            None
+        };
+
+        CcaLocalInterruptExit {
+            exception_class,
+            esr_el2,
+            source_value,
+            exit_esr_el2: self.0.esr_el2,
+            virtual_timer_asserted: self.virtual_timer_asserted(),
+        }
     }
 }
 
@@ -475,16 +502,8 @@ impl BackingPrivate for CcaBacked {
                     }
                 }
                 PlaneExitReason::Irq => {
-                    if matches!(cca_exit.esr_el2_class(), ExceptionClass::SystemRegister) {
-                        let iss = IssSystem::from(esr_el2.iss());
-                        let source_value = cca_exit.gpr_or_zero_register(iss.rt());
-                        let exit_esr_el2 = cca_exit.0.esr_el2;
-                        this.handle_system_register_trap(iss, source_value, exit_esr_el2, dev)?;
-                    } else if cca_exit.virtual_timer_asserted() {
-                        this.request_virtual_timer_interrupt(this.backing.cvm.exit_vtl, dev)?;
-                    } else {
-                        tracing::trace!("CCA IRQ exit had no asserted virtual timer");
-                    }
+                    let irq_exit = cca_exit.local_interrupt_exit();
+                    this.request_asserted_local_interrupts(irq_exit, dev)?;
                 }
                 PlaneExitReason::Unknown(exit_reason) => {
                     tracing::warn!(exit_reason, "unsupported CCA plane exit reason");
@@ -581,6 +600,28 @@ impl UhProcessor<'_, CcaBacked> {
             CcaVirtualInterrupt::group1(self.shared.virt_timer_ppi),
             dev,
         )
+    }
+
+    fn request_asserted_local_interrupts(
+        &mut self,
+        irq_exit: CcaLocalInterruptExit,
+        dev: &impl CpuIo,
+    ) -> Result<(), VpHaltReason> {
+        if matches!(irq_exit.exception_class, ExceptionClass::SystemRegister) {
+            let iss = IssSystem::from(irq_exit.esr_el2.iss());
+            self.handle_system_register_trap(
+                iss,
+                irq_exit.source_value,
+                irq_exit.exit_esr_el2,
+                dev,
+            )?;
+        } else if irq_exit.virtual_timer_asserted {
+            self.request_virtual_timer_interrupt(self.backing.cvm.exit_vtl, dev)?;
+        } else {
+            tracing::trace!("CCA IRQ exit had an unrecognized local interrupt source");
+        }
+
+        Ok(())
     }
 
     fn handle_system_register_trap(
