@@ -9,6 +9,90 @@
 pub use gicd::Distributor;
 pub use gicr::Redistributor;
 
+use memory_range::MemoryRange;
+use std::error::Error;
+use std::fmt;
+use vm_topology::processor::ProcessorTopology;
+use vm_topology::processor::aarch64::Aarch64Topology;
+use vm_topology::processor::aarch64::GicVersion;
+
+#[derive(Debug)]
+pub enum GicV3ModelError {
+    UnsupportedGicVersion,
+    RedistributorRangeOverflow,
+    DistributorRangeOverflow,
+}
+
+impl fmt::Display for GicV3ModelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedGicVersion => write!(f, "software GIC requires GICv3"),
+            Self::RedistributorRangeOverflow => write!(f, "GIC redistributor range overflowed"),
+            Self::DistributorRangeOverflow => write!(f, "GIC distributor range overflowed"),
+        }
+    }
+}
+
+impl Error for GicV3ModelError {}
+
+pub struct GicV3Model {
+    distributor: Distributor,
+    distributor_range: MemoryRange,
+    redistributor_range: MemoryRange,
+}
+
+impl GicV3Model {
+    pub fn new(topology: &ProcessorTopology<Aarch64Topology>) -> Result<Self, GicV3ModelError> {
+        let redistributors_base = match topology.gic_version() {
+            GicVersion::V3 {
+                redistributors_base,
+            } => redistributors_base,
+            GicVersion::V2 { .. } => return Err(GicV3ModelError::UnsupportedGicVersion),
+        };
+        let redistributors_size = aarch64defs::GIC_REDISTRIBUTOR_SIZE
+            .checked_mul(u64::from(topology.vp_count()))
+            .ok_or(GicV3ModelError::RedistributorRangeOverflow)?;
+        let redistributors_end = redistributors_base
+            .checked_add(redistributors_size)
+            .ok_or(GicV3ModelError::RedistributorRangeOverflow)?;
+        let redistributor_range = MemoryRange::new(redistributors_base..redistributors_end);
+        let distributor_base = topology.gic_distributor_base();
+        let distributor_end = distributor_base
+            .checked_add(aarch64defs::GIC_DISTRIBUTOR_SIZE)
+            .ok_or(GicV3ModelError::DistributorRangeOverflow)?;
+        let distributor_range = MemoryRange::new(distributor_base..distributor_end);
+
+        let mut distributor = Distributor::new(
+            distributor_base,
+            redistributor_range,
+            topology.gic_nr_irqs(),
+        );
+        let vp_count = topology.vp_count() as usize;
+        for (index, vp) in topology.vps_arch().enumerate() {
+            distributor.add_redistributor(vp.mpidr.into(), index + 1 == vp_count);
+        }
+
+        Ok(Self {
+            distributor,
+            distributor_range,
+            redistributor_range,
+        })
+    }
+
+    pub fn contains(&self, address: u64) -> bool {
+        self.distributor_range.contains_addr(address)
+            || self.redistributor_range.contains_addr(address)
+    }
+
+    pub fn read(&self, address: u64, data: &mut [u8]) -> bool {
+        self.distributor.read(address, data)
+    }
+
+    pub fn write(&self, address: u64, data: &[u8]) -> bool {
+        self.distributor.write(address, data)
+    }
+}
+
 mod gicd {
     use super::Redistributor;
     use super::gicr::SharedState;
