@@ -9456,6 +9456,7 @@ dependencies = [
  "virt",
  "virt_support_aarch64emu",
  "virt_support_apic",
+ "virt_support_gic",
  "virt_support_x86emu",
  "vm_topology",
  "vmcore",

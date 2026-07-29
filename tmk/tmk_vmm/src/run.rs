@@ -573,6 +573,11 @@ impl RunnerBuilder {
         }
     }
 
+    #[cfg(guest_arch = "aarch64")]
+    pub fn set_gic(&mut self, gic: Arc<GicV3Model>) {
+        self.gic = gic;
+    }
+
     pub fn build<P: Processor>(&mut self, mut vp: P) -> anyhow::Result<Runner<'_, P>> {
         {
             let mut state = vp.access_state(Vtl::Vtl0);

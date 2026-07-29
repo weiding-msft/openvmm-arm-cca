@@ -9,10 +9,18 @@
 pub use gicd::Distributor;
 pub use gicr::Redistributor;
 
+#[derive(Clone, Copy, Debug)]
+pub struct PendingInterrupt {
+    pub intid: u32,
+    pub priority: u8,
+    pub group1: bool,
+}
+
 use memory_range::MemoryRange;
 use std::error::Error;
 use std::fmt;
 use vm_topology::processor::ProcessorTopology;
+use vm_topology::processor::VpIndex;
 use vm_topology::processor::aarch64::Aarch64Topology;
 use vm_topology::processor::aarch64::GicVersion;
 
@@ -91,9 +99,36 @@ impl GicV3Model {
     pub fn write(&self, address: u64, data: &[u8]) -> bool {
         self.distributor.write(address, data)
     }
+
+    pub fn set_spi_irq(&self, intid: u32, high: bool) -> Vec<VpIndex> {
+        self.distributor.set_spi_irq(intid, high)
+    }
+
+    pub fn clear_spi_irq(&self, intid: u32) {
+        self.distributor.clear_spi_irq(intid);
+    }
+
+    pub fn next_pending_interrupt(
+        &self,
+        vp: VpIndex,
+        running_priority: u8,
+    ) -> Option<PendingInterrupt> {
+        self.distributor
+            .next_pending_interrupt(vp, running_priority)
+    }
+
+    pub fn next_pending_spi_interrupt(
+        &self,
+        vp: VpIndex,
+        running_priority: u8,
+    ) -> Option<PendingInterrupt> {
+        self.distributor
+            .next_pending_spi_interrupt(vp, running_priority)
+    }
 }
 
 mod gicd {
+    use super::PendingInterrupt;
     use super::Redistributor;
     use super::gicr::SharedState;
     use aarch64defs::MpidrEl1;
@@ -140,8 +175,8 @@ mod gicd {
     }
 
     impl Distributor {
-        pub fn new(gicd_base: u64, gicr_range: MemoryRange, max_spis: u32) -> Self {
-            let n = (max_spis as usize + 1) / 32;
+        pub fn new(gicd_base: u64, gicr_range: MemoryRange, interrupt_count: u32) -> Self {
+            let n = interrupt_count.div_ceil(32) as usize;
             Self {
                 state: Mutex::new(DistributorState {
                     pending: vec![0; n],
@@ -154,7 +189,7 @@ mod gicd {
                     enable_grp0: false,
                     enable_grp1: false,
                 }),
-                max_spi_intid: 32 + max_spis - 1,
+                max_spi_intid: interrupt_count.saturating_sub(1),
                 gicr: Default::default(),
                 gicd_range: MemoryRange::new(
                     gicd_base..gicd_base + aarch64defs::GIC_DISTRIBUTOR_SIZE,
@@ -182,17 +217,160 @@ mod gicd {
             }
         }
 
-        pub fn set_pending(&self, intid: u32, pending: bool) -> Option<u32> {
-            let v = &mut self.state.lock().pending[intid as usize / 32];
+        pub fn set_spi_irq(&self, intid: u32, high: bool) -> Vec<VpIndex> {
+            if intid < 32 || intid > self.max_spi_intid {
+                tracelimit::warn_ratelimited!(intid, high, "invalid GIC SPI assertion");
+                return Vec::new();
+            }
+
+            let mut state = self.state.lock();
+            if !Self::set_pending_locked(&mut state, intid, high) || !high {
+                return Vec::new();
+            }
+
+            self.target_vps_for_spi(&state, intid)
+        }
+
+        pub fn clear_spi_irq(&self, intid: u32) {
+            if intid >= 32 && intid <= self.max_spi_intid {
+                Self::set_pending_locked(&mut self.state.lock(), intid, false);
+            }
+        }
+
+        pub fn next_pending_interrupt(
+            &self,
+            vp: VpIndex,
+            running_priority: u8,
+        ) -> Option<PendingInterrupt> {
+            let private = self.next_private_interrupt(vp, running_priority);
+            let spi = self.next_spi_interrupt(vp, running_priority);
+
+            match (private, spi) {
+                (Some(a), Some(b)) if interrupt_precedes(a, b) => Some(a),
+                (Some(_), Some(b)) => Some(b),
+                (Some(a), None) => Some(a),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            }
+        }
+
+        pub fn next_pending_spi_interrupt(
+            &self,
+            vp: VpIndex,
+            running_priority: u8,
+        ) -> Option<PendingInterrupt> {
+            self.next_spi_interrupt(vp, running_priority)
+        }
+
+        fn next_private_interrupt(
+            &self,
+            vp: VpIndex,
+            running_priority: u8,
+        ) -> Option<PendingInterrupt> {
+            self.gicr
+                .get(vp.index() as usize)?
+                .next_private_interrupt(running_priority)
+        }
+
+        fn next_spi_interrupt(
+            &self,
+            vp: VpIndex,
+            running_priority: u8,
+        ) -> Option<PendingInterrupt> {
+            let state = self.state.lock();
+            if !state.enable_grp1 {
+                return None;
+            }
+
+            let mut best = None;
+            for word in 1..state.pending.len() {
+                let mut candidates = state.pending[word]
+                    & state.enable[word]
+                    & !state.active[word]
+                    & state.group[word];
+                while candidates != 0 {
+                    let bit = candidates.trailing_zeros();
+                    candidates &= candidates - 1;
+
+                    let intid = word as u32 * 32 + bit;
+                    if intid > self.max_spi_intid || !self.spi_targets_vp(&state, intid, vp) {
+                        continue;
+                    }
+
+                    let priority = Self::priority(&state.priority, intid);
+                    if priority >= running_priority {
+                        continue;
+                    }
+
+                    let interrupt = PendingInterrupt {
+                        intid,
+                        priority,
+                        group1: true,
+                    };
+                    if best.is_none_or(|current| interrupt_precedes(interrupt, current)) {
+                        best = Some(interrupt);
+                    }
+                }
+            }
+
+            best
+        }
+
+        fn set_pending_locked(state: &mut DistributorState, intid: u32, pending: bool) -> bool {
+            let Some(word) = state.pending.get_mut(intid as usize / 32) else {
+                return false;
+            };
+
             let mask = 1 << (intid & 31);
-            if (*v & mask != 0) != pending {
+            let changed = (*word & mask != 0) != pending;
+            if changed {
                 tracing::debug!(intid, pending, "set pending");
             }
             if pending {
-                *v |= mask;
+                *word |= mask;
+            } else {
+                *word &= !mask;
+            }
+            changed
+        }
+
+        fn priority(priority: &[u32], intid: u32) -> u8 {
+            let word = priority.get(intid as usize / 4).copied().unwrap_or(0);
+            let shift = (intid % 4) * 8;
+            ((word >> shift) & 0xff) as u8
+        }
+
+        fn target_vps_for_spi(&self, state: &DistributorState, intid: u32) -> Vec<VpIndex> {
+            self.gicr
+                .iter()
+                .enumerate()
+                .filter_map(|(index, _)| {
+                    let vp = VpIndex::new(index as u32);
+                    self.spi_targets_vp(state, intid, vp).then_some(vp)
+                })
+                .collect()
+        }
+
+        fn spi_targets_vp(&self, state: &DistributorState, intid: u32, vp: VpIndex) -> bool {
+            let Some(gicr) = self.gicr.get(vp.index() as usize) else {
+                return false;
+            };
+            let route = state.route.get(intid as usize).copied().unwrap_or(0);
+            if route & (1 << 31) != 0 {
+                return true;
+            }
+
+            let mpidr = gicr.mpidr;
+            u64::from(mpidr.aff0()) == (route & 0xff)
+                && u64::from(mpidr.aff1()) == ((route >> 8) & 0xff)
+                && u64::from(mpidr.aff2()) == ((route >> 16) & 0xff)
+                && u64::from(mpidr.aff3()) == ((route >> 32) & 0xff)
+        }
+
+        pub fn set_pending(&self, intid: u32, pending: bool) -> Option<u32> {
+            if Self::set_pending_locked(&mut self.state.lock(), intid, pending) && pending {
                 Some(0)
             } else {
-                *v &= !mask;
                 None
             }
         }
@@ -336,6 +514,22 @@ mod gicd {
                         }
                     }
                 }
+                r if GicdRegister::ISPENDR.contains(&r.0) => {
+                    let n = (r.0 & 0x7f) / 4;
+                    if n != 0 {
+                        if let Some(pending) = self.state.lock().pending.get_mut(n as usize) {
+                            *pending |= value;
+                        }
+                    }
+                }
+                r if GicdRegister::ICPENDR.contains(&r.0) => {
+                    let n = (r.0 & 0x7f) / 4;
+                    if n != 0 {
+                        if let Some(pending) = self.state.lock().pending.get_mut(n as usize) {
+                            *pending &= !value;
+                        }
+                    }
+                }
                 r if GicdRegister::ICFGR.contains(&r.0) => {
                     let n = (r.0 & 0xff) / 4;
                     if n >= 2 {
@@ -348,8 +542,8 @@ mod gicd {
                 r if GicdRegister::IPRIORITYR.contains(&r.0) => {
                     let n = (r.0 & 0x3ff) / 4;
                     if n >= 8 {
-                        if let Some(cfg) = self.state.lock().cfg.get_mut(n as usize) {
-                            *cfg = value;
+                        if let Some(priority) = self.state.lock().priority.get_mut(n as usize) {
+                            *priority = value;
                         }
                     }
                 }
@@ -578,9 +772,14 @@ mod gicd {
             }
         }
     }
+
+    fn interrupt_precedes(a: PendingInterrupt, b: PendingInterrupt) -> bool {
+        a.priority < b.priority || (a.priority == b.priority && a.intid < b.intid)
+    }
 }
 
 mod gicr {
+    use super::PendingInterrupt;
     use aarch64defs::MpidrEl1;
     use aarch64defs::gic::GicrCtlr;
     use aarch64defs::gic::GicrRdRegister;
@@ -625,6 +824,42 @@ mod gicr {
     }
 
     impl SharedState {
+        pub(crate) fn next_private_interrupt(
+            &self,
+            running_priority: u8,
+        ) -> Option<PendingInterrupt> {
+            let pending = self.pending.load(Ordering::Relaxed);
+            let state = self.mutable.lock();
+            let deliverable = pending & state.enable & !state.active & state.group;
+
+            let mut best: Option<PendingInterrupt> = None;
+            for intid in 0..32 {
+                if deliverable & (1 << intid) == 0 {
+                    continue;
+                }
+
+                let word = state.priority[(intid / 4) as usize];
+                let priority = ((word >> ((intid % 4) * 8)) & 0xff) as u8;
+                if priority >= running_priority {
+                    continue;
+                }
+
+                let interrupt = PendingInterrupt {
+                    intid,
+                    priority,
+                    group1: true,
+                };
+                if best.is_none_or(|current| {
+                    priority < current.priority
+                        || (priority == current.priority && intid < current.intid)
+                }) {
+                    best = Some(interrupt);
+                }
+            }
+
+            best
+        }
+
         pub fn raise(&self, intid: u32) -> bool {
             let mask = 1 << intid;
             self.pending.fetch_or(mask, Ordering::Relaxed) & mask == 0

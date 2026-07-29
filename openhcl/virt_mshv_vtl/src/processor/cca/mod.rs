@@ -37,6 +37,7 @@ use virt::aarch64::vp;
 use virt::aarch64::vp::AccessVpState;
 use virt::io::CpuIo;
 use virt_support_aarch64emu::translate::TranslationRegisters;
+use virt_support_gic::PendingInterrupt;
 use zerocopy::FromZeros;
 
 #[derive(Debug, Error)]
@@ -130,6 +131,16 @@ impl CcaVirtualInterrupt {
             intid,
             priority: DEFAULT_GIC_PRIORITY,
             group1: true,
+        }
+    }
+}
+
+impl From<PendingInterrupt> for CcaVirtualInterrupt {
+    fn from(interrupt: PendingInterrupt) -> Self {
+        Self {
+            intid: interrupt.intid,
+            priority: interrupt.priority,
+            group1: interrupt.group1,
         }
     }
 }
@@ -748,6 +759,37 @@ impl UhProcessor<'_, CcaBacked> {
                 group1 = interrupt.group1,
                 ?vtl,
                 "injected CCA GIC interrupt"
+            );
+        }
+
+        while let Some(interrupt) = self
+            .shared
+            .cvm
+            .gic
+            .next_pending_spi_interrupt(self.vp_index(), u8::MAX)
+        {
+            let interrupt = CcaVirtualInterrupt::from(interrupt);
+            if !inject_virtual_interrupt(
+                &mut self.runner.cca_rsi_plane_entry().gicv3_lrs,
+                interrupt,
+            ) {
+                tracelimit::warn_ratelimited!(
+                    intid = interrupt.intid,
+                    priority = interrupt.priority,
+                    group1 = interrupt.group1,
+                    ?vtl,
+                    "no free CCA GIC list register; leaving shared interrupt pending"
+                );
+                return;
+            }
+
+            self.shared.cvm.gic.clear_spi_irq(interrupt.intid);
+            tracing::debug!(
+                intid = interrupt.intid,
+                priority = interrupt.priority,
+                group1 = interrupt.group1,
+                ?vtl,
+                "injected pending CCA shared GIC interrupt"
             );
         }
     }

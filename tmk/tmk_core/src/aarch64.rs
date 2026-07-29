@@ -14,6 +14,11 @@ const GIC_REDISTRIBUTOR_BASE: usize = tmk_protocol::aarch64::GIC_REDISTRIBUTOR_B
 const GIC_REDISTRIBUTOR_SGI_BASE: usize = GIC_REDISTRIBUTOR_BASE + 0x1_0000;
 
 const GICD_CTLR: usize = GIC_DISTRIBUTOR_BASE;
+const GICD_IGROUPR0: usize = GIC_DISTRIBUTOR_BASE + 0x80;
+const GICD_ISENABLER0: usize = GIC_DISTRIBUTOR_BASE + 0x100;
+const GICD_ICENABLER0: usize = GIC_DISTRIBUTOR_BASE + 0x180;
+const GICD_ISPENDR0: usize = GIC_DISTRIBUTOR_BASE + 0x200;
+const GICD_IPRIORITYR0: usize = GIC_DISTRIBUTOR_BASE + 0x400;
 const GICR_WAKER: usize = GIC_REDISTRIBUTOR_BASE + 0x14;
 const GICR_IGROUPR0: usize = GIC_REDISTRIBUTOR_SGI_BASE + 0x80;
 const GICR_ISENABLER0: usize = GIC_REDISTRIBUTOR_SGI_BASE + 0x100;
@@ -209,24 +214,44 @@ impl<'scope> Scope<'scope, '_> {
         };
     }
 
-    /// Enables a GIC SGI/PPI interrupt for the current VP.
+    /// Enables a GIC interrupt.
     pub fn enable_gic_irq(&self, intid: u32) {
-        assert!(intid < 32, "only SGI/PPI interrupts are supported");
         enable_gic_for_current_vp();
-        write_reg32(GICR_IGROUPR0, read_reg32(GICR_IGROUPR0) | (1 << intid));
+        if intid < 32 {
+            write_reg32(GICR_IGROUPR0, read_reg32(GICR_IGROUPR0) | (1 << intid));
 
-        let priority_address = GICR_IPRIORITYR0 + (intid as usize & !3);
-        let priority_shift = (intid & 3) * 8;
-        let priority = read_reg32(priority_address) & !(0xff << priority_shift);
-        write_reg32(priority_address, priority | (0x80 << priority_shift));
-        write_reg32(GICR_ISENABLER0, 1 << intid);
+            let priority_address = GICR_IPRIORITYR0 + (intid as usize & !3);
+            let priority_shift = (intid & 3) * 8;
+            let priority = read_reg32(priority_address) & !(0xff << priority_shift);
+            write_reg32(priority_address, priority | (0x80 << priority_shift));
+            write_reg32(GICR_ISENABLER0, 1 << intid);
+        } else {
+            assert!(intid < GIC_SPECIAL_INTID, "SPI INTID must be below 1020");
+            let word = intid as usize / 32;
+            let mask = 1 << (intid & 31);
+            write_reg32(
+                GICD_IGROUPR0 + word * 4,
+                read_reg32(GICD_IGROUPR0 + word * 4) | mask,
+            );
+
+            let priority_address = GICD_IPRIORITYR0 + (intid as usize & !3);
+            let priority_shift = (intid & 3) * 8;
+            let priority = read_reg32(priority_address) & !(0xff << priority_shift);
+            write_reg32(priority_address, priority | (0x80 << priority_shift));
+            write_reg32(GICD_ISENABLER0 + word * 4, mask);
+        }
         memory_barrier();
     }
 
-    /// Disables a GIC SGI/PPI interrupt for the current VP.
+    /// Disables a GIC interrupt.
     pub fn disable_gic_irq(&self, intid: u32) {
-        assert!(intid < 32, "only SGI/PPI interrupts are supported");
-        write_reg32(GICR_ICENABLER0, 1 << intid);
+        if intid < 32 {
+            write_reg32(GICR_ICENABLER0, 1 << intid);
+        } else {
+            assert!(intid < GIC_SPECIAL_INTID, "SPI INTID must be below 1020");
+            let word = intid as usize / 32;
+            write_reg32(GICD_ICENABLER0 + word * 4, 1 << (intid & 31));
+        }
         memory_barrier();
     }
 
@@ -322,6 +347,17 @@ pub fn send_sgi_to_self(intid: u32) {
             value = in(reg) value,
         );
     }
+}
+
+/// Sets the pending bit for a GIC SPI through GICD_ISPENDR.
+pub fn pend_spi(intid: u32) {
+    assert!(
+        (32..GIC_SPECIAL_INTID).contains(&intid),
+        "SPI INTID must be in 32..1020"
+    );
+    let word = intid as usize / 32;
+    write_reg32(GICD_ISPENDR0 + word * 4, 1 << (intid & 31));
+    memory_barrier();
 }
 
 #[cfg_attr(not(minimal_rt), expect(dead_code))]

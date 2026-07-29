@@ -84,3 +84,41 @@ fn sgi_self_irq(t: TestContext<'_>) {
 
     assert!(sgi_fired.load(Relaxed), "self SGI interrupt did not fire");
 }
+
+#[tmk_test]
+fn spi_self_pending_irq(t: TestContext<'_>) {
+    const TEST_SPI: u32 = 32;
+
+    let spi_fired = AtomicBool::new(false);
+    let spi_isr = |ctx: &mut aarch64::IrqContext| {
+        if ctx.intid == TEST_SPI {
+            spi_fired.store(true, Relaxed);
+        }
+    };
+
+    t.scope.subscope(|s| {
+        s.set_irq_handler(&spi_isr);
+        s.enable_gic_irq(TEST_SPI);
+        s.enable_interrupts();
+
+        aarch64::pend_spi(TEST_SPI);
+
+        let frequency = aarch64::read_cntfrq();
+        let start = aarch64::read_cntvct();
+        let timeout_ticks = core::cmp::max(frequency, 1);
+
+        while !spi_fired.load(Relaxed) && aarch64::read_cntvct().wrapping_sub(start) < timeout_ticks
+        {
+            aarch64::poll_interrupts();
+            core::hint::spin_loop();
+        }
+
+        s.disable_interrupts();
+        s.disable_gic_irq(TEST_SPI);
+    });
+
+    assert!(
+        spi_fired.load(Relaxed),
+        "self-pended SPI interrupt did not fire"
+    );
+}
