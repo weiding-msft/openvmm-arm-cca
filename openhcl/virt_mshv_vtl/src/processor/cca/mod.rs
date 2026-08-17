@@ -43,6 +43,7 @@ use virt::io::CpuIo;
 use virt_support_aarch64emu::translate::TranslationRegisters;
 use virt_support_gic::PendingInterrupt;
 use zerocopy::FromZeros;
+use std::cmp::min;
 
 #[derive(Debug, Error)]
 #[error("failed to run")]
@@ -91,9 +92,11 @@ const ICH_LR_VINTID_MASK: u64 = u32::MAX as u64;
 const ICH_LR_PRIORITY_SHIFT: u32 = 48;
 const ICH_LR_GROUP1: u64 = 1 << 60;
 const ICH_LR_PENDING: u64 = 1 << 62;
+const ICH_LR_ACTIVE: u64 = 2 << 62;
 const ICH_LR_STATE_MASK: u64 = 3 << 62;
 const CCA_PENDING_GIC_INTERRUPTS: usize = 16;
 const RSI_PLANE_EXIT_INVALID: u64 = u64::MAX;
+const ICH_LR_PRIORITY_MASK: u64 = 0xff << ICH_LR_PRIORITY_SHIFT;
 
 // For use with Hyper-V synthetic interrupt controller allocated by paravisor.
 enum UhDirectOverlay {
@@ -339,6 +342,27 @@ fn inject_virtual_interrupt(lrs: &mut [u64], interrupt: CcaVirtualInterrupt) -> 
     true
 }
 
+fn running_priority(lrs: &[u64]) -> u8 {
+
+    let mut running = 0xff;
+
+    for &lr in lrs {
+
+        let state = lr & ICH_LR_STATE_MASK;
+
+        if state & ICH_LR_PENDING != ICH_LR_PENDING && state & ICH_LR_ACTIVE != ICH_LR_ACTIVE {
+            continue;
+        }
+
+        let priority = ((lr >> ICH_LR_PRIORITY_SHIFT) & ICH_LR_PRIORITY_MASK) as u8;
+
+        running = min(running, priority);
+
+    }
+
+    running
+}
+
 fn virtual_interrupt_is_listed(lrs: &[u64], intid: u32) -> bool {
     lrs.iter()
         .any(|lr| *lr & ICH_LR_STATE_MASK != 0 && *lr & ICH_LR_VINTID_MASK == u64::from(intid))
@@ -575,7 +599,8 @@ impl BackingPrivate for CcaBacked {
                             let iss = IssSystem::from(esr_el2.iss());
                             let source_value = cca_exit.gpr_or_zero_register(iss.rt());
                             let exit_esr_el2 = cca_exit.0.esr_el2;
-                            this.handle_system_register_trap(iss, source_value, exit_esr_el2, dev)?;
+                            let exit_gprs = cca_exit.0.gprs.clone();
+                            this.handle_system_register_trap(iss, source_value, exit_esr_el2, &exit_gprs, dev)?;
                         }
                         ExceptionClass::Unknown(exception_class) => {
                             tracing::warn!(
@@ -595,7 +620,8 @@ impl BackingPrivate for CcaBacked {
                 }
                 PlaneExitReason::Irq => {
                     let irq_exit = cca_exit.local_interrupt_exit();
-                    this.request_asserted_local_interrupts(irq_exit, dev)?;
+                    let exit_gprs = cca_exit.0.gprs.clone();
+                    this.request_asserted_local_interrupts(irq_exit, &exit_gprs, dev)?;
                 }
                 PlaneExitReason::Unknown(exit_reason) => {
                     tracing::warn!(exit_reason, "unsupported CCA plane exit reason");
@@ -697,6 +723,7 @@ impl UhProcessor<'_, CcaBacked> {
     fn request_asserted_local_interrupts(
         &mut self,
         irq_exit: CcaLocalInterruptExit,
+        exit_gprs: &[u64; 31],
         dev: &impl CpuIo,
     ) -> Result<(), VpHaltReason> {
         if matches!(irq_exit.exception_class, ExceptionClass::SystemRegister) {
@@ -705,10 +732,19 @@ impl UhProcessor<'_, CcaBacked> {
                 iss,
                 irq_exit.source_value,
                 irq_exit.exit_esr_el2,
+                exit_gprs,
                 dev,
             )?;
         } else if irq_exit.virtual_timer_asserted {
-            self.request_virtual_timer_interrupt(self.backing.cvm.exit_vtl, dev)?;
+            // self.request_virtual_timer_interrupt(self.backing.cvm.exit_vtl, dev)?;
+            let intid = self.shared.virt_timer_ppi;
+
+            if !self.shared.cvm.gic.raise_ppi(self.vp_index(), intid) {
+                tracing::trace!(
+                    intid,
+                    "virtual timer PPI was already pending or VP was invalid"
+                );
+            }
         } else {
             tracing::trace!("CCA IRQ exit had an unrecognized local interrupt source");
         }
@@ -721,55 +757,84 @@ impl UhProcessor<'_, CcaBacked> {
         iss: IssSystem,
         source_value: Option<u64>,
         exit_esr_el2: u64,
+        exit_gprs: &[u64; 31],
         dev: &impl CpuIo,
     ) -> Result<(), VpHaltReason> {
         let system_reg = iss.system_reg();
 
-        match system_reg {
-            SystemReg::ICC_PMR_EL1 if !iss.direction() => {
-                let Some(value) = source_value else {
-                    return Err(dev.fatal_error(
-                        CcaUnsupportedExit::MissingSystemRegisterValue {
-                            system_reg,
-                            esr_el2: exit_esr_el2,
-                        }
-                        .into(),
-                    ));
-                };
-                let vtl = self.backing.cvm.exit_vtl;
-                self.backing.vtls[vtl].gic.priority_mask = value as u8;
-                tracing::trace!(priority_mask = value as u8, ?vtl, "updated CCA ICC_PMR_EL1");
-                self.runner.cca_rsi_plane_entry().pc += 4;
-            }
-            SystemReg::ICC_SGI1R_EL1 if !iss.direction() => {
-                let Some(value) = source_value else {
-                    tracing::warn!(
-                        rt = iss.rt(),
-                        "CCA ICC_SGI1R_EL1 write has source register outside RSI GPR array"
-                    );
-                    return Err(
-                        dev.fatal_error(CcaUnsupportedExit::InvalidSgiValue(exit_esr_el2).into())
-                    );
-                };
-
-                self.handle_icc_sgi1r_el1_write(value, dev)?;
-                self.runner.cca_rsi_plane_entry().pc += 4;
-            }
-            _ => {
-                tracing::warn!(
-                    ?system_reg,
-                    esr_el2 = exit_esr_el2,
-                    "unsupported CCA system register trap"
-                );
-                return Err(dev.fatal_error(
-                    CcaUnsupportedExit::UnsupportedSystemRegister {
-                        system_reg,
-                        esr_el2: exit_esr_el2,
-                    }
-                    .into(),
-                ));
-            }
+        if !matches!(
+            system_reg,
+            SystemReg::ICC_SGI0R_EL1 | SystemReg::ICC_SGI1R_EL1
+        ) {
+            return Ok(());
         }
+
+        let value = match iss.rt() {
+            31 => 0,
+            rt => exit_gprs[rt as usize],
+        };
+
+        let handled = self
+            .shared
+            .cvm
+            .gic
+            .write_sysreg(system_reg, value, |target_vp| {
+                tracing::trace!(
+                    target_vp,
+                    ?system_reg,
+                    "GIC sysreg write raised an interrupt"
+                );
+            });
+
+        if !handled {
+            tracing::warn!(?system_reg, value, "unhandled GIC system-register write");
+        }
+
+        // match system_reg {
+        //     SystemReg::ICC_PMR_EL1 if !iss.direction() => {
+        //         let Some(value) = source_value else {
+        //             return Err(dev.fatal_error(
+        //                 CcaUnsupportedExit::MissingSystemRegisterValue {
+        //                     system_reg,
+        //                     esr_el2: exit_esr_el2,
+        //                 }
+        //                 .into(),
+        //             ));
+        //         };
+        //         let vtl = self.backing.cvm.exit_vtl;
+        //         self.backing.vtls[vtl].gic.priority_mask = value as u8;
+        //         tracing::trace!(priority_mask = value as u8, ?vtl, "updated CCA ICC_PMR_EL1");
+        //         self.runner.cca_rsi_plane_entry().pc += 4;
+        //     }
+        //     SystemReg::ICC_SGI1R_EL1 if !iss.direction() => {
+        //         let Some(value) = source_value else {
+        //             tracing::warn!(
+        //                 rt = iss.rt(),
+        //                 "CCA ICC_SGI1R_EL1 write has source register outside RSI GPR array"
+        //             );
+        //             return Err(
+        //                 dev.fatal_error(CcaUnsupportedExit::InvalidSgiValue(exit_esr_el2).into())
+        //             );
+        //         };
+
+        //         self.handle_icc_sgi1r_el1_write(value, dev)?;
+        //         self.runner.cca_rsi_plane_entry().pc += 4;
+        //     }
+        //     _ => {
+        //         tracing::warn!(
+        //             ?system_reg,
+        //             esr_el2 = exit_esr_el2,
+        //             "unsupported CCA system register trap"
+        //         );
+        //         return Err(dev.fatal_error(
+        //             CcaUnsupportedExit::UnsupportedSystemRegister {
+        //                 system_reg,
+        //                 esr_el2: exit_esr_el2,
+        //             }
+        //             .into(),
+        //         ));
+        //     }
+        // }
 
         Ok(())
     }
@@ -820,14 +885,20 @@ impl UhProcessor<'_, CcaBacked> {
 
     fn poll_gic(&mut self, vtl: GuestVtl) {
         loop {
-            let gic = &self.backing.vtls[vtl].gic;
-            let Some(interrupt) = self.shared.cvm.gic.next_pending_private_interrupt(
-                self.vp_index(),
-                gic.pending_mask(),
-                gic.priority_mask,
-            ) else {
-                break;
+            // let gic = &self.backing.vtls[vtl].gic;
+            // let Some(interrupt) = self.shared.cvm.gic.next_pending_private_interrupt(
+            //     self.vp_index(),
+            //     gic.pending_mask(),
+            //     gic.priority_mask,
+            // ) else {
+            //     break;
+            // };
+            let running_priority = running_priority(&self.runner.cca_rsi_plane_entry().gicv3_lrs);
+            let Some(interrupt) = self.shared.cvm.gic.next_pending_interrupt(self.vp_index(), running_priority)
+            else {
+                return;
             };
+
             let interrupt = CcaVirtualInterrupt::from(interrupt);
 
             if !inject_virtual_interrupt(
@@ -844,9 +915,11 @@ impl UhProcessor<'_, CcaBacked> {
                 return;
             }
 
-            self.backing.vtls[vtl]
-                .gic
-                .complete_interrupt(interrupt.intid);
+            self.shared.cvm.gic.complete_interrupt(interrupt.intid, true);
+
+            //  self.backing.vtls[vtl]
+            //      .gic
+            //     .complete_interrupt(interrupt.intid);
             tracing::debug!(
                 intid = interrupt.intid,
                 priority = interrupt.priority,

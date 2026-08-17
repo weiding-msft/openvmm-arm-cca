@@ -16,6 +16,7 @@ pub struct PendingInterrupt {
     pub group1: bool,
 }
 
+use std::sync::Mutex;
 use memory_range::MemoryRange;
 use std::error::Error;
 use std::fmt;
@@ -23,6 +24,7 @@ use vm_topology::processor::ProcessorTopology;
 use vm_topology::processor::VpIndex;
 use vm_topology::processor::aarch64::Aarch64Topology;
 use vm_topology::processor::aarch64::GicVersion;
+use aarch64defs::SystemReg;
 
 #[derive(Debug)]
 pub enum GicV3ModelError {
@@ -45,6 +47,7 @@ impl Error for GicV3ModelError {}
 
 pub struct GicV3Model {
     distributor: Distributor,
+    redistributors: Vec<Mutex<Redistributor>>,
     distributor_range: MemoryRange,
     redistributor_range: MemoryRange,
 }
@@ -75,13 +78,22 @@ impl GicV3Model {
             redistributor_range,
             topology.gic_nr_irqs(),
         );
+
+        let mut redistributors: Vec<Redistributor> = vec![];
         let vp_count = topology.vp_count() as usize;
         for (index, vp) in topology.vps_arch().enumerate() {
-            distributor.add_redistributor(vp.mpidr.into(), index + 1 == vp_count);
+            let gicr = distributor.add_redistributor(vp.mpidr.into(), index + 1 == vp_count);
+            redistributors.push(gicr);
         }
+
+        let redistributors = redistributors
+                .into_iter()
+                .map(Mutex::new)
+                .collect();
 
         Ok(Self {
             distributor,
+            redistributors,
             distributor_range,
             redistributor_range,
         })
@@ -112,6 +124,18 @@ impl GicV3Model {
         self.distributor.retain_in_flight_spis(vp, is_in_flight);
     }
 
+    pub fn write_sysreg(
+            &self,
+            reg: SystemReg,
+            value: u64,
+            wake: impl FnMut(usize),
+    ) -> bool {
+        let vp_index = 0 as usize;
+
+        let mut gicr = self.redistributors[vp_index].lock().expect("redistributor mutex error");
+        self.distributor.write_sysreg(&mut gicr, reg, value, wake)
+    }
+
     pub fn next_pending_interrupt(
         &self,
         vp: VpIndex,
@@ -138,6 +162,22 @@ impl GicV3Model {
     ) -> Option<PendingInterrupt> {
         self.distributor
             .next_pending_spi_interrupt(vp, running_priority)
+    }
+
+    pub fn raise_ppi(&self, vp: VpIndex, intid: u32) -> bool {
+        self.distributor.raise_ppi(vp, intid)
+    }
+
+    pub fn complete_interrupt(&self, intid: u32, group1: bool) {
+        let vp_index = 0 as usize;
+
+        self.distributor.clear_pending(vp_index, intid, group1);
+        // if intid < 32 {
+        //     self.clear_private_pending(vp, intid);
+        // } else {
+        //     self.distributor.set_pending(intid, false);
+        // }
+
     }
 }
 
@@ -863,6 +903,17 @@ mod gicd {
                 tracelimit::warn_ratelimited!(?address, ?data, "unsupported gicd register write");
             }
         }
+
+        pub fn clear_pending(&self, vp_index: usize, intid: u32, group1: bool) {
+            if intid < 32 {
+                if let Some(gicr) = self.gicr.get(vp_index) {
+                    gicr.clear_pending(intid);
+                }
+            } else {
+                let mut state = self.state.lock();
+                Self::set_pending_locked(&mut state, intid, false);
+            }
+        }
     }
 
     fn interrupt_precedes(a: PendingInterrupt, b: PendingInterrupt) -> bool {
@@ -1358,6 +1409,13 @@ mod gicr {
             }
             tracing::debug!(?address, data, "gicr sgi write32");
             true
+        }
+
+        pub fn clear_pending(&self, intid: u32) {
+            debug_assert!(intid < 32);
+
+            self.pending
+                .fetch_and(!(1 << intid), Ordering::Relaxed);
         }
     }
 
