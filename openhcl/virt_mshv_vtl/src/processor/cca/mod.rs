@@ -73,8 +73,6 @@ enum CcaUnsupportedExit {
     },
     #[error("CCA private GIC interrupt ID {0} is outside the SGI/PPI range")]
     InvalidPrivateGicInterrupt(u32),
-    #[error("no free pending CCA GIC slot for virtual interrupt {0}")]
-    NoFreePendingGicInterrupt(u32),
     #[error("unsupported CCA system register trap for {system_reg:?} in ESR_EL2 {esr_el2:#x}")]
     UnsupportedSystemRegister { system_reg: SystemReg, esr_el2: u64 },
     #[error("CCA {system_reg:?} write in ESR_EL2 {esr_el2:#x} has no accessible source register")]
@@ -94,7 +92,6 @@ const ICH_LR_GROUP1: u64 = 1 << 60;
 const ICH_LR_PENDING: u64 = 1 << 62;
 const ICH_LR_ACTIVE: u64  = 2 << 62;
 const ICH_LR_STATE_MASK: u64 = 3 << 62;
-const CCA_PENDING_GIC_INTERRUPTS: usize = 16;
 const GIC_PRIVATE_INTERRUPT_COUNT: u32 = 32;
 const RSI_PLANE_EXIT_INVALID: u64 = u64::MAX;
 
@@ -143,19 +140,19 @@ impl CcaVtl {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CcaGicRequestError {
     InvalidIntid,
-    NoFreeSlot,
 }
 
 #[derive(Clone, Copy)]
 struct CcaGic {
-    pending: [Option<u32>; CCA_PENDING_GIC_INTERRUPTS],
+    // pending: [Option<u32>; CCA_PENDING_GIC_INTERRUPTS],
+    pending: u32,
     priority_mask: u8,
 }
 
 impl CcaGic {
     const fn new() -> Self {
         Self {
-            pending: [None; CCA_PENDING_GIC_INTERRUPTS],
+            pending: 0,
             priority_mask: u8::MAX,
         }
     }
@@ -164,29 +161,20 @@ impl CcaGic {
         if intid >= GIC_PRIVATE_INTERRUPT_COUNT {
             return Err(CcaGicRequestError::InvalidIntid);
         }
-
-        if self.pending.contains(&Some(intid)) {
+        if self.pending & (1 << intid) != 0 {
             return Ok(());
         }
 
-        let Some(slot) = self.pending.iter_mut().find(|slot| slot.is_none()) else {
-            return Err(CcaGicRequestError::NoFreeSlot);
-        };
-        *slot = Some(intid);
+        self.pending |= 1 << intid;
         Ok(())
     }
 
     fn pending_mask(&self) -> u32 {
         self.pending
-            .iter()
-            .flatten()
-            .fold(0, |pending, intid| pending | 1 << intid)
     }
 
     fn complete_interrupt(&mut self, intid: u32) {
-        if let Some(slot) = self.pending.iter_mut().find(|slot| **slot == Some(intid)) {
-            *slot = None;
-        }
+        self.pending &= !(1 << intid);
     }
 }
 
@@ -837,9 +825,6 @@ impl UhProcessor<'_, CcaBacked> {
             let err = match err {
                 CcaGicRequestError::InvalidIntid => {
                     CcaUnsupportedExit::InvalidPrivateGicInterrupt(intid)
-                }
-                CcaGicRequestError::NoFreeSlot => {
-                    CcaUnsupportedExit::NoFreePendingGicInterrupt(intid)
                 }
             };
             return Err(dev.fatal_error(err.into()));
