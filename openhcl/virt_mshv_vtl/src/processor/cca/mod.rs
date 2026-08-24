@@ -92,6 +92,7 @@ const ICH_LR_VINTID_MASK: u64 = u32::MAX as u64;
 const ICH_LR_PRIORITY_SHIFT: u32 = 48;
 const ICH_LR_GROUP1: u64 = 1 << 60;
 const ICH_LR_PENDING: u64 = 1 << 62;
+const ICH_LR_ACTIVE: u64  = 2 << 62;
 const ICH_LR_STATE_MASK: u64 = 3 << 62;
 const CCA_PENDING_GIC_INTERRUPTS: usize = 16;
 const GIC_PRIVATE_INTERRUPT_COUNT: u32 = 32;
@@ -319,7 +320,19 @@ impl<'a> CcaExit<'a> {
 }
 
 fn inject_virtual_interrupt(lrs: &mut [u64], interrupt: PendingInterrupt) -> bool {
-    if virtual_interrupt_is_listed(lrs, interrupt.intid) {
+    // if virtual_interrupt_is_listed(lrs, interrupt.intid) {
+    //     return true;
+    // }
+
+    if let Some(lr) = lrs.iter_mut().find(|lr| {
+        **lr & ICH_LR_STATE_MASK != 0
+            && **lr & ICH_LR_VINTID_MASK == u64::from(interrupt.intid)
+    }) {
+        let state = *lr & ICH_LR_STATE_MASK;
+
+        if state == ICH_LR_ACTIVE {
+            *lr |= ICH_LR_PENDING;
+        }
         return true;
     }
 
