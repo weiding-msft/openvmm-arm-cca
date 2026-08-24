@@ -157,6 +157,7 @@ mod gicd {
     use parking_lot::Mutex;
     use std::sync::Arc;
     use vm_topology::processor::VpIndex;
+    use smallvec::{SmallVec, smallvec};
 
     #[derive(Debug, Inspect)]
     pub struct Distributor {
@@ -168,6 +169,12 @@ mod gicd {
         gicr_range: MemoryRange,
     }
 
+    #[derive(Debug, Default, Inspect, Clone)]
+    struct InFlightSpis {
+        #[inspect(iter_by_index)]
+        intids: SmallVec<[u32; 16]>,
+    }
+
     #[derive(Debug, Inspect)]
     struct DistributorState {
         /// Level-triggered SPI input lines currently asserted by devices.
@@ -176,8 +183,10 @@ mod gicd {
         #[inspect(iter_by_index)]
         pending: Vec<u32>,
         /// SPIs currently represented in a CCA GIC list register, indexed by INTID.
+        // #[inspect(iter_by_index)]
+        // in_flight: Vec<Option<u32>>,
         #[inspect(iter_by_index)]
-        in_flight: Vec<Option<u32>>,
+        in_flight: Vec<InFlightSpis>,
         #[inspect(iter_by_index)]
         active: Vec<u32>,
         #[inspect(iter_by_index)]
@@ -201,7 +210,7 @@ mod gicd {
                 state: Mutex::new(DistributorState {
                     asserted: vec![0; n],
                     pending: vec![0; n],
-                    in_flight: vec![None; n * 32],
+                    in_flight: vec![InFlightSpis::default(); 1],
                     active: vec![0; n],
                     group: vec![0; n],
                     enable: vec![0; n],
@@ -265,7 +274,13 @@ mod gicd {
 
             let mut state = self.state.lock();
             Self::set_pending_locked(&mut state, intid, false);
-            state.in_flight[intid as usize] = Some(vp.index());
+            let vp = vp.index() as usize;
+
+            if state.in_flight.len() <= vp {
+                state.in_flight.resize_with(vp + 1, || InFlightSpis::default());
+            }
+
+            state.in_flight[vp].intids.push(intid);
         }
 
         pub fn retain_in_flight_spis(
@@ -274,11 +289,13 @@ mod gicd {
             mut is_in_flight: impl FnMut(u32) -> bool,
         ) {
             let mut state = self.state.lock();
-            for (intid, target) in state.in_flight.iter_mut().enumerate().skip(32) {
-                if *target == Some(vp.index()) && !is_in_flight(intid as u32) {
-                    *target = None;
-                }
+            let vp = vp.index() as usize;
+
+            if state.in_flight.len() <= vp {
+                state.in_flight.resize_with(vp + 1, || InFlightSpis::default());
             }
+
+            state.in_flight[vp].intids.retain(|&mut intid| is_in_flight(intid));
         }
 
         pub fn next_pending_interrupt(
@@ -364,7 +381,8 @@ mod gicd {
                         continue;
                     }
                     if intid > self.max_spi_intid
-                        || state.in_flight[intid as usize].is_some()
+                        // || state.in_flight[intid as usize].is_some()
+                        || state.in_flight[vp.index() as usize].intids.contains(&intid)
                         || !self.spi_targets_vp(&state, intid, vp)
                     {
                         continue;

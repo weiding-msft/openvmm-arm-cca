@@ -17,5 +17,7 @@ tracelimit.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 
+smallvec.workspace = true
+
 [lints]
 workspace = true

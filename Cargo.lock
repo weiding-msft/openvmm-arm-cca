@@ -9720,6 +9720,7 @@ dependencies = [
  "inspect",
  "memory_range",
  "parking_lot",
+ "smallvec",
  "tracelimit",
  "tracing",
  "vm_topology",
