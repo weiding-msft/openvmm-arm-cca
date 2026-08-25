@@ -891,7 +891,7 @@ impl UhProcessor<'_, CcaBacked> {
             .shared
             .cvm
             .gic
-            .next_pending_spi_interrupt(self.vp_index(), running_priority)
+            .reserve_pending_spi_interrupt(vp, running_priority)
         {
             if !inject_virtual_interrupt(
                 &mut self.runner.cca_rsi_plane_entry().gicv3_lrs,
@@ -904,20 +904,12 @@ impl UhProcessor<'_, CcaBacked> {
                     ?vtl,
                     "no free CCA GIC list register; leaving shared interrupt pending"
                 );
+
+                self.shared.cvm.gic.rollback_reserved_spi_interrupt(vp, interrupt.intid);
+
                 return;
             }
 
-            self.shared
-                .cvm
-                .gic
-                .mark_spi_injected(self.vp_index(), interrupt.intid);
-            tracing::debug!(
-                intid = interrupt.intid,
-                priority = interrupt.priority,
-                group1 = interrupt.group1,
-                ?vtl,
-                "injected pending CCA shared GIC interrupt"
-            );
         }
     }
 

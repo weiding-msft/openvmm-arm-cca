@@ -131,6 +131,14 @@ impl GicV3Model {
             .next_pending_private_interrupt(vp, pending, running_priority)
     }
 
+    pub fn reserve_pending_spi_interrupt(&self, vp: VpIndex, running_priority: u8) -> Option<PendingInterrupt> {
+        self.distributor.reserve_pending_spi_interrupt(vp, running_priority)
+    }
+
+    pub fn rollback_reserved_spi_interrupt(&self, vp: VpIndex, intid: u32) {
+        self.distributor.rollback_reserved_spi_interrupt(vp, intid);
+    }
+
     pub fn next_pending_spi_interrupt(
         &self,
         vp: VpIndex,
@@ -328,6 +336,34 @@ mod gicd {
             self.gicr
                 .get(vp.index() as usize)?
                 .select_private_interrupt(pending, running_priority)
+        }
+
+        pub fn reserve_pending_spi_interrupt(&self, vp: VpIndex, running_priority: u8) -> Option<PendingInterrupt> {
+            let mut state = self.state.lock();
+            let best = self.next_spi_interrupt(vp, running_priority);
+            if let Some(interrupt) = best {
+                Self::set_pending_locked(&mut state, interrupt.intid, false);
+                let vp = vp.index() as usize;
+
+                if state.in_flight.len() <= vp {
+                    state.in_flight.resize_with(vp + 1, || InFlightSpis::default());
+                }
+
+                state.in_flight[vp].intids.push(interrupt.intid);
+            }
+            best
+        }
+
+        pub fn rollback_reserved_spi_interrupt(&self, vp: VpIndex, intid: u32) {
+            let mut state = self.state.lock();
+            Self::set_pending_locked(&mut state, intid, true);
+            let vp = vp.index() as usize;
+
+            if state.in_flight.len() <= vp {
+                state.in_flight.resize_with(vp + 1, || InFlightSpis::default());
+            }
+
+            state.in_flight[vp].intids.retain(|&mut i| i != intid);
         }
 
         pub fn next_pending_spi_interrupt(
