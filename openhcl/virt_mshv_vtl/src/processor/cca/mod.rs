@@ -16,6 +16,7 @@ use crate::UhCvmPartitionState;
 use crate::UhCvmVpState;
 use crate::UhPartitionInner;
 use crate::processor::InterceptMessageState;
+use crate::processor::private;
 use aarch64defs::EsrEl2;
 use aarch64defs::HpfarEl2;
 use aarch64defs::InstructionAbortReason;
@@ -316,7 +317,7 @@ fn running_priority(lrs: &[u64]) -> u8 {
 }
 
 fn interrupt_priority_threshold(priority_mask: u8, lrs: &[u64]) -> u8 {
-    min(priority_mask, running_priority(lrs))
+    min(running_priority(lrs), priority_mask)
 }
 
 fn extend_mmio_read(data: [u8; size_of::<u64>()], len: usize, sign_extend: bool, sf: bool) -> u64 {
@@ -756,72 +757,52 @@ impl UhProcessor<'_, CcaBacked> {
             });
         self.shared.cvm.gic.fold_list_registers(vp, &lrs);
 
+        let pmr = self.backing.vtls[vtl].priority_mask;
+
         loop {
-            let priority_threshold = interrupt_priority_threshold(
-                self.backing.vtls[vtl].priority_mask,
-                &self.runner.cca_rsi_plane_entry().gicv3_lrs,
-            );
-            let Some(interrupt) = self
+
+            let private_interrupt = self
                 .shared
                 .cvm
                 .gic
-                .next_pending_private_interrupt(self.vp_index(), priority_threshold)
-            else {
-                break;
+                .next_pending_private_interrupt(self.vp_index(), pmr);
+
+            // Device SPIs belong to VTL0. The returned list registers were reconciled
+            // before selecting any new interrupts, so retired level-sensitive SPIs
+            // are now eligible for injection again.
+            let shared_interrupt = if vtl != GuestVtl::Vtl0 { None } else {
+                self
+                .shared
+                .cvm
+                .gic
+                .reserve_pending_spi_interrupt(self.vp_index(), pmr)
+            };
+
+            let mut interrupt_shared = false;
+            let interrupt = match (shared_interrupt, private_interrupt) {
+                (Some(spi), Some(private)) => {
+                    if spi.priority < private.priority {
+                        interrupt_shared = true;
+                        spi
+                    } else {
+                        private
+                    }
+                }
+                (Some(spi), None) => {interrupt_shared = true; spi},
+                (None, Some(private)) => private,
+                (None, None) => break,
             };
 
             if !inject_virtual_interrupt(
                 &mut self.runner.cca_rsi_plane_entry().gicv3_lrs,
                 interrupt,
             ) {
-                tracelimit::warn_ratelimited!(
-                    intid = interrupt.intid,
-                    priority = interrupt.priority,
-                    group1 = interrupt.group1,
-                    ?vtl,
-                    "no free CCA GIC list register; leaving interrupt pending"
-                );
-                return;
-            }
-
-            self.shared
-                .cvm
-                .gic
-                .mark_private_injected(self.vp_index(), interrupt.intid);
-            tracing::debug!(
-                intid = interrupt.intid,
-                priority = interrupt.priority,
-                group1 = interrupt.group1,
-                ?vtl,
-                "injected CCA GIC interrupt"
-            );
-        }
-
-        // Device SPIs belong to VTL0. The returned list registers were reconciled
-        // before selecting any new interrupts, so retired level-sensitive SPIs
-        // are now eligible for injection again.
-        if vtl != GuestVtl::Vtl0 {
-            return;
-        }
-
-        let priority_threshold = interrupt_priority_threshold(
-            self.backing.vtls[vtl].priority_mask,
-            &self.runner.cca_rsi_plane_entry().gicv3_lrs,
-        );
-        while let Some(interrupt) = self
-            .shared
-            .cvm
-            .gic
-            .reserve_pending_spi_interrupt(self.vp_index(), priority_threshold)
-        {
-            if !inject_virtual_interrupt(
-                &mut self.runner.cca_rsi_plane_entry().gicv3_lrs,
-                interrupt,
-            ) {
-                self.shared
-                    .cvm
-                    .gic
-                    .cancel_spi_reservation(self.vp_index(), interrupt.intid);
+                if interrupt_shared == true {
+                    self.shared
+                        .cvm
+                        .gic
+                        .cancel_spi_reservation(self.vp_index(), interrupt.intid);
+                }
                 tracelimit::warn_ratelimited!(
                     intid = interrupt.intid,
                     priority = interrupt.priority,
@@ -832,14 +813,29 @@ impl UhProcessor<'_, CcaBacked> {
                 return;
             }
 
-            // The SPI reservation is already durable before its LR is filled.
-            tracing::debug!(
-                intid = interrupt.intid,
-                priority = interrupt.priority,
-                group1 = interrupt.group1,
-                ?vtl,
-                "injected pending CCA shared GIC interrupt"
-            );
+            if interrupt_shared == true {
+                // The SPI reservation is already durable before its LR is filled.
+                tracing::debug!(
+                    intid = interrupt.intid,
+                    priority = interrupt.priority,
+                    group1 = interrupt.group1,
+                    ?vtl,
+                    "injected pending CCA shared GIC interrupt"
+                );
+            } else {
+                    self.shared
+                    .cvm
+                    .gic
+                    .mark_private_injected(self.vp_index(), interrupt.intid);
+                tracing::debug!(
+                    intid = interrupt.intid,
+                    priority = interrupt.priority,
+                    group1 = interrupt.group1,
+                    ?vtl,
+                    "injected CCA GIC interrupt"
+                );
+            }
+
         }
     }
 

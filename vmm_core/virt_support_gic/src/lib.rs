@@ -149,28 +149,28 @@ impl GicV3Model {
     pub fn next_pending_private_interrupt(
         &self,
         vp: VpIndex,
-        running_priority: u8,
+        pmr: u8,
     ) -> Option<PendingInterrupt> {
         self.distributor
-            .next_private_interrupt(vp, running_priority)
+            .next_private_interrupt(vp, pmr)
     }
 
     pub fn next_pending_spi_interrupt(
         &self,
         vp: VpIndex,
-        running_priority: u8,
+        pmr: u8,
     ) -> Option<PendingInterrupt> {
         self.distributor
-            .next_pending_spi_interrupt(vp, running_priority)
+            .next_pending_spi_interrupt(vp, pmr)
     }
 
     pub fn reserve_pending_spi_interrupt(
         &self,
         vp: VpIndex,
-        running_priority: u8,
+        pmr: u8,
     ) -> Option<PendingInterrupt> {
         self.distributor
-            .reserve_pending_spi_interrupt(vp, running_priority)
+            .reserve_pending_spi_interrupt(vp, pmr)
     }
 
     pub fn raise_ppi(&self, vp: VpIndex, intid: u32) -> bool {
@@ -435,10 +435,10 @@ mod gicd {
         pub fn reserve_pending_spi_interrupt(
             &self,
             vp: VpIndex,
-            running_priority: u8,
+            pmr: u8,
         ) -> Option<PendingInterrupt> {
             let mut state = self.state.lock();
-            let interrupt = self.next_spi_interrupt_locked(&state, vp, running_priority)?;
+            let interrupt = self.next_spi_interrupt_locked(&state, vp, pmr)?;
             // Reserve while still holding the selection lock so another VP
             // cannot select the same IRM-routed SPI.
             Self::set_pending_locked(&mut state, interrupt.intid, false);
@@ -449,7 +449,7 @@ mod gicd {
         pub fn next_private_interrupt(
             &self,
             vp: VpIndex,
-            running_priority: u8,
+            pmr: u8,
         ) -> Option<PendingInterrupt> {
             if !self.state.lock().enable_grp1 {
                 return None;
@@ -457,7 +457,7 @@ mod gicd {
 
             self.gicr
                 .get(vp.index() as usize)?
-                .next_private_interrupt(running_priority)
+                .next_private_interrupt(pmr)
         }
 
         pub fn clear_pending(&self, vp_index: usize, intid: u32) {
@@ -1413,16 +1413,16 @@ mod gicr {
     impl SharedState {
         pub(crate) fn next_private_interrupt(
             &self,
-            running_priority: u8,
+            pmr: u8,
         ) -> Option<PendingInterrupt> {
             let pending = self.pending.load(Ordering::Relaxed);
-            self.select_private_interrupt(pending, running_priority)
+            self.select_private_interrupt(pending, pmr)
         }
 
         pub(crate) fn select_private_interrupt(
             &self,
             pending: u32,
-            running_priority: u8,
+            pmr: u8,
         ) -> Option<PendingInterrupt> {
             let state = self.mutable.lock();
             let in_flight = self.in_flight.load(Ordering::Relaxed);
@@ -1441,7 +1441,7 @@ mod gicr {
                 */
                 let word = state.priority[(intid / 4) as usize];
                 let priority = ((word >> ((intid % 4) * 8)) & 0xff) as u8;
-                if priority >= running_priority {
+                if priority >= pmr {
                     continue;
                 }
 
