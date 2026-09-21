@@ -320,6 +320,21 @@ fn interrupt_priority_threshold(priority_mask: u8, lrs: &[u64]) -> u8 {
     min(running_priority(lrs), priority_mask)
 }
 
+fn repend_if_active(lrs: &mut [u64], intid: u32) -> bool {
+
+    for lr in lrs.iter_mut() {
+        if *lr & ICH_LR_STATE_MASK != 0 && *lr & ICH_LR_VINTID_MASK == u64::from(intid) && *lr & ICH_LR_ACTIVE != 0 {
+            if *lr & ICH_LR_PENDING == 0 {
+                *lr |= ICH_LR_PENDING;
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+    false
+}
+
 fn extend_mmio_read(data: [u8; size_of::<u64>()], len: usize, sign_extend: bool, sf: bool) -> u64 {
     let value = u64::from_ne_bytes(data);
     if sign_extend {
@@ -770,13 +785,19 @@ impl UhProcessor<'_, CcaBacked> {
             // Device SPIs belong to VTL0. The returned list registers were reconciled
             // before selecting any new interrupts, so retired level-sensitive SPIs
             // are now eligible for injection again.
-            let shared_interrupt = if vtl != GuestVtl::Vtl0 { None } else {
+            let (shared_interrupt, other_shared_interrupts) = if vtl != GuestVtl::Vtl0 { (None, Vec::new()) } else {
                 self
                 .shared
                 .cvm
                 .gic
                 .reserve_pending_spi_interrupt(self.vp_index(), pmr)
             };
+
+            for interrupt in &other_shared_interrupts {
+                if repend_if_active(&mut self.runner.cca_rsi_plane_entry().gicv3_lrs, interrupt.intid) {
+                    self.shared.cvm.gic.remove_pending(interrupt.intid);
+                }
+            }
 
             let mut interrupt_shared = false;
             let interrupt = match (shared_interrupt, private_interrupt) {
@@ -785,6 +806,11 @@ impl UhProcessor<'_, CcaBacked> {
                         interrupt_shared = true;
                         spi
                     } else {
+                        self.shared.cvm.gic.make_pending_again(spi.intid);
+                        self.shared
+                            .cvm
+                            .gic
+                        .cancel_spi_reservation(self.vp_index(), spi.intid);
                         private
                     }
                 }

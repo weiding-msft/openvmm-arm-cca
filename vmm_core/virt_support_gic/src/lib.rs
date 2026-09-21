@@ -123,6 +123,14 @@ impl GicV3Model {
         self.distributor.fold_list_registers(vp, lrs);
     }
 
+    pub fn make_pending_again(&self, intid: u32) {
+        self.distributor.make_pending_again(intid);
+    }
+
+    pub fn remove_pending(&self, intid: u32) {
+        self.distributor.remove_pending(intid);
+    }
+
     pub fn write_sysreg(
         &self,
         vp: VpIndex,
@@ -168,7 +176,7 @@ impl GicV3Model {
         &self,
         vp: VpIndex,
         pmr: u8,
-    ) -> Option<PendingInterrupt> {
+    ) -> (Option<PendingInterrupt>, Vec<PendingInterrupt>) {
         self.distributor
             .reserve_pending_spi_interrupt(vp, pmr)
     }
@@ -374,9 +382,9 @@ mod gicd {
                 let keep = returned.is_some();
                 if let Some(lr) = returned {
                     Self::set_bit(&mut state.active, intid, lr.active);
-                    if lr.pending {
-                        Self::set_pending_locked(&mut state, intid, true);
-                    }
+                    // if lr.pending {
+                    //     Self::set_pending_locked(&mut state, intid, true);
+                    // }
                 } else {
                     Self::set_bit(&mut state.active, intid, false);
                     state.in_flight[intid as usize] = None;
@@ -436,14 +444,29 @@ mod gicd {
             &self,
             vp: VpIndex,
             pmr: u8,
-        ) -> Option<PendingInterrupt> {
+        ) -> (Option<PendingInterrupt>, Vec<PendingInterrupt>) {
             let mut state = self.state.lock();
-            let interrupt = self.next_spi_interrupt_locked(&state, vp, pmr)?;
+            let Some((interrupt, others)) = self.next_spi_interrupt_locked(&state, vp, pmr) else {
+                return (None, Vec::new());
+            };
+            let Some(current_interrupt) = interrupt else {
+                return (None, others);
+            };
             // Reserve while still holding the selection lock so another VP
             // cannot select the same IRM-routed SPI.
-            Self::set_pending_locked(&mut state, interrupt.intid, false);
-            Self::set_in_flight_locked(&mut state, vp, interrupt.intid);
-            Some(interrupt)
+            Self::set_pending_locked(&mut state, current_interrupt.intid, false);
+            Self::set_in_flight_locked(&mut state, vp, current_interrupt.intid);
+            (Some(current_interrupt), others)
+        }
+
+        pub fn make_pending_again(&self, intid: u32) {
+            let mut state = self.state.lock();
+            Self::set_pending_locked(&mut state, intid, true);
+        }
+
+        pub fn remove_pending(&self, intid: u32) {
+            let mut state = self.state.lock();
+            Self::set_pending_locked(&mut state, intid, false);
         }
 
         pub fn next_private_interrupt(
@@ -477,7 +500,10 @@ mod gicd {
             running_priority: u8,
         ) -> Option<PendingInterrupt> {
             let state = self.state.lock();
-            self.next_spi_interrupt_locked(&state, vp, running_priority)
+            let Some((best, _)) = self.next_spi_interrupt_locked(&state, vp, running_priority) else {
+                return None;
+            };
+            best
         }
 
         fn next_spi_interrupt_locked(
@@ -485,12 +511,13 @@ mod gicd {
             state: &DistributorState,
             vp: VpIndex,
             running_priority: u8,
-        ) -> Option<PendingInterrupt> {
+        ) -> Option<(Option<PendingInterrupt>, Vec<PendingInterrupt>)> {
             if !state.enable_grp1 {
                 return None;
             }
 
             let mut best = None;
+            let mut others = Vec::new();
             let mut ready_words = state.pending_word_summary & !1;
             while ready_words != 0 {
                 let word = ready_words.trailing_zeros() as usize;
@@ -514,6 +541,19 @@ mod gicd {
                     if !pending && owned_by_vp {
                         continue;
                     }
+
+                    if intid <= self.max_spi_intid
+                        && owned_by_vp
+                        && state.active[word] & mask != 0
+                    {
+                        others.push(PendingInterrupt {
+                            intid,
+                            priority: Self::priority(&state.priority, intid),
+                            group1: true,
+                        });
+                        continue;
+                    }
+
                     if intid > self.max_spi_intid
                         || (state.in_flight[intid as usize].is_some() && !owned_by_vp)
                         || (state.active[word] & mask != 0 && !owned_by_vp)
@@ -538,7 +578,7 @@ mod gicd {
                 }
             }
 
-            best
+            Some((best, others))
         }
 
         fn set_pending_locked(state: &mut DistributorState, intid: u32, pending: bool) -> bool {
