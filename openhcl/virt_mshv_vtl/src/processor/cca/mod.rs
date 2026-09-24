@@ -44,6 +44,7 @@ use virt::io::CpuIo;
 use virt_support_aarch64emu::translate::TranslationRegisters;
 use virt_support_gic::ListRegisterInterrupt;
 use virt_support_gic::PendingInterrupt;
+use virt_support_gic::GicV3Model;
 use zerocopy::FromZeros;
 
 #[derive(Debug, Error)]
@@ -333,6 +334,26 @@ fn repend_if_active(lrs: &mut [u64], intid: u32) -> bool {
         }
     }
     false
+}
+
+pub fn modify_using_pending_latch(lrs: &mut [u64], gic: &GicV3Model, vp: VpIndex) {
+
+    match gic.get_latches(vp) {
+        Some((clearing_latch, pending_latch)) => {
+            for lr in lrs.iter_mut() {
+                let vintid = (*lr & ICH_LR_VINTID_MASK) as u32;
+                if vintid < 32 && (clearing_latch & (1 << vintid)) != 0 {
+                    *lr &= !ICH_LR_PENDING;
+                }
+
+                //do I need this since I can collect an array of potential interrupts in the private pending array that could be made active+pending, like I did for the shared interrupts (I guess the OR doesn't rlly make a difference)
+                if vintid < 32 && *lr & ICH_LR_ACTIVE != 0 && (pending_latch & (1 << vintid)) != 0 {
+                    *lr |= ICH_LR_PENDING;
+                }
+            }
+        }
+        None => return,
+    };
 }
 
 fn extend_mmio_read(data: [u8; size_of::<u64>()], len: usize, sign_extend: bool, sf: bool) -> u64 {
@@ -681,9 +702,8 @@ impl UhProcessor<'_, CcaBacked> {
     ) -> Result<(), CcaUnsupportedExit> {
         if let Some((iss, value, esr_el2)) = irq_exit.system_register_trap {
             self.handle_system_register_trap(vtl, iss, value, esr_el2)?;
-        } else if irq_exit.virtual_timer_asserted {
+        } else if self.shared.cvm.gic.pend_ppi(irq_exit.virtual_timer_asserted, self.shared.virt_timer_ppi, self.vp_index()) {
             let intid = self.shared.virt_timer_ppi;
-
             if !self.shared.cvm.gic.raise_ppi(self.vp_index(), intid) {
                 tracing::trace!(
                     intid,
@@ -773,14 +793,25 @@ impl UhProcessor<'_, CcaBacked> {
         self.shared.cvm.gic.fold_list_registers(vp, &lrs);
 
         let pmr = self.backing.vtls[vtl].priority_mask;
+        let vp = self.vp_index();
+        modify_using_pending_latch(&mut self.runner.cca_rsi_plane_entry().gicv3_lrs, &self.shared.cvm.gic, vp);
 
         loop {
 
-            let private_interrupt = self
+            let (private_interrupt, other_private_interrupts) = self
                 .shared
                 .cvm
                 .gic
-                .next_pending_private_interrupt(self.vp_index(), pmr);
+                .next_pending_private_interrupt(vp, pmr);
+
+            for interrupt in &other_private_interrupts {
+                if repend_if_active(&mut self.runner.cca_rsi_plane_entry().gicv3_lrs, interrupt.intid) {
+                    self.shared
+                    .cvm
+                    .gic
+                    .mark_private_injected(vp, interrupt.intid);
+                }
+            }
 
             // Device SPIs belong to VTL0. The returned list registers were reconciled
             // before selecting any new interrupts, so retired level-sensitive SPIs
@@ -790,7 +821,7 @@ impl UhProcessor<'_, CcaBacked> {
                 .shared
                 .cvm
                 .gic
-                .reserve_pending_spi_interrupt(self.vp_index(), pmr)
+                .reserve_pending_spi_interrupt(vp, pmr)
             };
 
             for interrupt in &other_shared_interrupts {
@@ -810,7 +841,7 @@ impl UhProcessor<'_, CcaBacked> {
                         self.shared
                             .cvm
                             .gic
-                        .cancel_spi_reservation(self.vp_index(), spi.intid);
+                        .cancel_spi_reservation(vp, spi.intid);
                         private
                     }
                 }
@@ -827,7 +858,7 @@ impl UhProcessor<'_, CcaBacked> {
                     self.shared
                         .cvm
                         .gic
-                        .cancel_spi_reservation(self.vp_index(), interrupt.intid);
+                        .cancel_spi_reservation(vp, interrupt.intid);
                 }
                 tracelimit::warn_ratelimited!(
                     intid = interrupt.intid,
@@ -852,7 +883,7 @@ impl UhProcessor<'_, CcaBacked> {
                     self.shared
                     .cvm
                     .gic
-                    .mark_private_injected(self.vp_index(), interrupt.intid);
+                    .mark_private_injected(vp, interrupt.intid);
                 tracing::debug!(
                     intid = interrupt.intid,
                     priority = interrupt.priority,
