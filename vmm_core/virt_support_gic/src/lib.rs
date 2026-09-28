@@ -228,7 +228,7 @@ mod gicd {
 
     #[derive(Debug, Inspect)]
     pub struct Distributor {
-        state: Mutex<DistributorState>,
+        state: Arc<Mutex<DistributorState>>,
         max_spi_intid: u32,
         #[inspect(skip)]
         gicr: Vec<Arc<SharedState>>,
@@ -237,7 +237,7 @@ mod gicd {
     }
 
     #[derive(Debug, Inspect)]
-    struct DistributorState {
+    pub struct DistributorState {
         /// Level-triggered SPI input lines currently asserted by devices.
         #[inspect(iter_by_index)]
         asserted: Vec<u32>,
@@ -257,7 +257,9 @@ mod gicd {
         #[inspect(iter_by_index)]
         active: Vec<u32>,
         #[inspect(iter_by_index)]
-        group: Vec<u32>,
+        group_status: Vec<u32>,
+        #[inspect(iter_by_index)]
+        group_modifier: Vec<u32>,
         #[inspect(iter_by_index)]
         enable: Vec<u32>,
         #[inspect(iter_by_index)]
@@ -266,8 +268,9 @@ mod gicd {
         priority: Vec<u32>,
         #[inspect(iter_by_index)]
         route: Vec<u64>,
-        enable_grp0: bool,
-        enable_grp1: bool,
+        pub enable_grp0: bool,
+        pub enable_grp1_non_secure: bool,
+        pub enable_grp1_secure: bool,
     }
 
     impl Distributor {
@@ -275,7 +278,7 @@ mod gicd {
             let n = interrupt_count.div_ceil(32) as usize;
             assert!(n <= u32::BITS as usize);
             Self {
-                state: Mutex::new(DistributorState {
+                state: Arc::new(Mutex::new(DistributorState {
                     asserted: vec![0; n],
                     pending: vec![0; n],
                     pending_word_summary: 0,
@@ -283,14 +286,16 @@ mod gicd {
                     in_flight_by_vp: Vec::new(),
                     irouter: vec![None; n * 32],
                     active: vec![0; n],
-                    group: vec![0; n],
+                    group_status: vec![0; n],
+                    group_modifier: vec![0; n],
                     enable: vec![0; n],
                     cfg: vec![0; n * 2],
                     priority: vec![0; n * 8],
                     route: vec![0; n * 64],
                     enable_grp0: false,
-                    enable_grp1: false,
-                }),
+                    enable_grp1_non_secure: false,
+                    enable_grp1_secure: false,
+                })),
                 max_spi_intid: interrupt_count.saturating_sub(1),
                 gicr: Default::default(),
                 gicd_range: MemoryRange::new(
@@ -302,7 +307,7 @@ mod gicd {
 
         pub fn add_redistributor(&mut self, mpidr: u64, last: bool) -> Redistributor {
             let mpidr = mpidr & u64::from(MpidrEl1::AFFINITY_MASK);
-            let (gicr, state) = Redistributor::new(self.gicr.len(), mpidr, last);
+            let (gicr, state) = Redistributor::new(self.gicr.len(), mpidr, last, self.state.clone());
             self.gicr.push(state);
             self.state
                 .lock()
@@ -444,7 +449,7 @@ mod gicd {
             pending: u32,
             running_priority: u8,
         ) -> (Option<PendingInterrupt>, Vec<PendingInterrupt>) {
-            if !self.state.lock().enable_grp1 {
+            if !self.state.lock().enable_grp1_non_secure && !self.state.lock().enable_grp1_secure {
                 return (None, Vec::new());
             }
 
@@ -496,7 +501,7 @@ mod gicd {
             vp: VpIndex,
             pmr: u8,
         ) -> (Option<PendingInterrupt>, Vec<PendingInterrupt>) {
-            if !self.state.lock().enable_grp1 {
+            if !self.state.lock().enable_grp1_non_secure && !self.state.lock().enable_grp1_secure {
                 return (None, Vec::new());
             }
 
@@ -535,7 +540,7 @@ mod gicd {
             vp: VpIndex,
             running_priority: u8,
         ) -> Option<(Option<PendingInterrupt>, Vec<PendingInterrupt>)> {
-            if !state.enable_grp1 {
+            if !state.enable_grp1_non_secure && !state.enable_grp1_secure {
                 return None;
             }
 
@@ -545,9 +550,23 @@ mod gicd {
             while ready_words != 0 {
                 let word = ready_words.trailing_zeros() as usize;
                 ready_words &= ready_words - 1;
+
+                let mut group = 0;
+                if state.enable_grp0 {
+                    group |= !state.group_modifier[word] & !state.group_status[word];
+                }
+                if state.enable_grp1_non_secure {
+                    // modified bit: 0b1, status bit: 0b1, Reserved, treated as Non-secure Group 1
+                    group |= state.group_status[word];
+                }
+                if state.enable_grp1_secure {
+                    group |= state.group_modifier[word] & !state.group_status[word];
+                }
+
                 let mut candidates = (state.pending[word] | state.asserted[word])
                     & state.enable[word]
-                    & state.group[word];
+                    & group;
+
                 while candidates != 0 {
                     let bit = candidates.trailing_zeros();
                     candidates &= candidates - 1;
@@ -557,6 +576,7 @@ mod gicd {
                     let pending = state.pending[word] & mask != 0;
                     let level_asserted =
                         state.asserted[word] & mask != 0 && !Self::edge_triggered(&state, intid);
+                    let group1 = (state.group_status[word] & mask) | (state.group_modifier[word] & mask) != 0;
                     if !pending && !level_asserted {
                         continue;
                     }
@@ -572,7 +592,7 @@ mod gicd {
                         others.push(PendingInterrupt {
                             intid,
                             priority: Self::priority(&state.priority, intid),
-                            group1: true,
+                            group1,
                         });
                         continue;
                     }
@@ -593,7 +613,7 @@ mod gicd {
                     let interrupt = PendingInterrupt {
                         intid,
                         priority,
-                        group1: true,
+                        group1,
                     };
                     if best.is_none_or(|current| interrupt_precedes(interrupt, current)) {
                         best = Some(interrupt);
@@ -821,13 +841,14 @@ mod gicd {
                     let mut state = self.state.lock();
                     let state = &mut *state;
                     state.enable_grp0 = ctlr.enable_grp0();
-                    state.enable_grp1 = ctlr.enable_grp1();
+                    state.enable_grp1_non_secure = ctlr.enable_grp1_non_secure();
+                    state.enable_grp1_secure = ctlr.enable_grp1_secure();
                 }
                 r if GicdRegister::IGROUPR.contains(&r.0) => {
                     let n = (r.0 & 0x7f) / 4;
                     if n != 0 {
-                        if let Some(group) = self.state.lock().group.get_mut(n as usize) {
-                            *group = value;
+                        if let Some(group_status) = self.state.lock().group_status.get_mut(n as usize) {
+                            *group_status = value;
                         }
                     }
                 }
@@ -900,6 +921,14 @@ mod gicd {
                         }
                     }
                 }
+                r if GicdRegister::IGRPMODR.contains(&r.0) => {
+                    let n = (r.0 & 0x7f) / 4;
+                    if n != 0 {
+                        if let Some(group_modifier) = self.state.lock().group_modifier.get_mut(n as usize) {
+                            *group_modifier |= value;
+                        }
+                    }
+                }
                 _ => return false,
             }
             true
@@ -926,7 +955,8 @@ mod gicd {
                     let state = self.state.lock();
                     GicdCtlr::new()
                         .with_enable_grp0(state.enable_grp0)
-                        .with_enable_grp1(state.enable_grp1)
+                        .with_enable_grp1_non_secure(state.enable_grp1_non_secure)
+                        .with_enable_grp1_secure(state.enable_grp1_secure)
                         .with_ds(true)
                         .with_are(true)
                         .into()
@@ -935,7 +965,7 @@ mod gicd {
                     let n = (r.0 & 0x7f) / 4;
                     self.state
                         .lock()
-                        .group
+                        .group_status
                         .get(n as usize)
                         .copied()
                         .unwrap_or(0)
@@ -982,6 +1012,15 @@ mod gicd {
                     self.state
                         .lock()
                         .pending
+                        .get(n as usize)
+                        .copied()
+                        .unwrap_or(0)
+                }
+                r if GicdRegister::IGRPMODR.contains(&r.0) => {
+                    let n = (r.0 & 0x7f) / 4;
+                    self.state
+                        .lock()
+                        .group_modifier
                         .get(n as usize)
                         .copied()
                         .unwrap_or(0)
@@ -1444,6 +1483,7 @@ mod gicr {
     use std::sync::Arc;
     use std::sync::atomic::AtomicU32;
     use std::sync::atomic::Ordering;
+    use super::gicd::DistributorState;
 
     #[derive(Debug, Inspect)]
     pub struct Redistributor {
@@ -1462,6 +1502,7 @@ mod gicr {
         #[inspect(with = "|&x| u64::from(x)")]
         pub(super) mpidr: MpidrEl1,
         last: bool,
+        distributor_state: Arc<Mutex<DistributorState>>,
         mutable: Mutex<SharedMutState>,
     }
 
@@ -1470,7 +1511,9 @@ mod gicr {
         #[inspect(hex)]
         active: u32,
         #[inspect(hex)]
-        group: u32,
+        group_status: u32,
+        #[inspect(hex)]
+        group_modifier: u32,
         #[inspect(hex)]
         enable: u32,
         #[inspect(hex)]
@@ -1496,18 +1539,31 @@ mod gicr {
         ) -> (Option<PendingInterrupt>, Vec<PendingInterrupt>) {
             let state = self.mutable.lock();
             let in_flight = self.in_flight.load(Ordering::Relaxed);
-            let deliverable = pending & state.enable & state.group & (!state.active | in_flight);
-            let repend = pending & state.enable & state.group & state.active & in_flight;
+            let mut group = 0;
+            if self.distributor_state.lock().enable_grp0 {
+                group |= !state.group_modifier & !state.group_status;
+            }
+            if self.distributor_state.lock().enable_grp1_non_secure {
+                // modified bit: 0b1, status bit: 0b1, Reserved, treated as Non-secure Group 1
+                group |= state.group_status;
+            }
+            if self.distributor_state.lock().enable_grp1_secure {
+                group |= state.group_modifier & !state.group_status;
+            }
+
+            let deliverable = pending & state.enable & group & (!state.active | in_flight);
+            let repend = pending & state.enable & group & state.active & in_flight;
 
             let mut others: Vec<PendingInterrupt> = Vec::new();
 
             let mut best: Option<PendingInterrupt> = None;
             for intid in 0..32 {
+                let group1 = (state.group_modifier | state.group_status) & (1 << intid) != 0;
                 if repend & (1 << intid) != 0 {
                     others.push(PendingInterrupt {
                         intid,
                         priority: ((state.priority[(intid / 4) as usize] >> ((intid % 4) * 8)) & 0xff) as u8,
-                        group1: true,
+                        group1,
                     });
                 }
 
@@ -1529,7 +1585,7 @@ mod gicr {
                 let interrupt = PendingInterrupt {
                     intid,
                     priority,
-                    group1: true,
+                    group1,
                 };
                 if best.is_none_or(|current| {
                     priority < current.priority
@@ -1754,7 +1810,7 @@ mod gicr {
 
         fn sgi_read32(&self, address: GicrSgiRegister) -> Option<u32> {
             let v = match address {
-                GicrSgiRegister::IGROUPR0 => self.mutable.lock().group,
+                GicrSgiRegister::IGROUPR0 => self.mutable.lock().group_status,
                 GicrSgiRegister::ICACTIVER0 | GicrSgiRegister::ISACTIVER0 => {
                     self.mutable.lock().active
                 }
@@ -1773,6 +1829,7 @@ mod gicr {
                     let n = (r.0 & 0x1f) / 4;
                     self.mutable.lock().priority[n as usize]
                 }
+                GicrSgiRegister::IGRPMODR0 => self.mutable.lock().group_modifier,
                 _ => return None,
             };
             tracing::debug!(?address, v, "gicr sgi read32");
@@ -1781,7 +1838,7 @@ mod gicr {
 
         fn sgi_write32(&self, address: GicrSgiRegister, data: u32) -> bool {
             match address {
-                GicrSgiRegister::IGROUPR0 => self.mutable.lock().group = data,
+                GicrSgiRegister::IGROUPR0 => self.mutable.lock().group_status = data,
                 GicrSgiRegister::ISACTIVER0 => self.mutable.lock().active |= data,
                 GicrSgiRegister::ICACTIVER0 => self.mutable.lock().active &= !data,
                 GicrSgiRegister::ISENABLER0 => self.mutable.lock().enable |= data,
@@ -1807,6 +1864,7 @@ mod gicr {
                     let n = (r.0 & 0x1f) / 4;
                     self.mutable.lock().priority[n as usize] = data;
                 }
+                GicrSgiRegister::IGRPMODR0 => self.mutable.lock().group_modifier = data,
                 _ => return false,
             }
             tracing::debug!(?address, data, "gicr sgi write32");
@@ -1840,7 +1898,7 @@ mod gicr {
     }
 
     impl Redistributor {
-        pub(crate) fn new(index: usize, mpidr: u64, last: bool) -> (Self, Arc<SharedState>) {
+        pub(crate) fn new(index: usize, mpidr: u64, last: bool, distributor_state: Arc<Mutex<DistributorState>>) -> (Self, Arc<SharedState>) {
             let shared = Arc::new(SharedState {
                 pending: AtomicU32::new(0),
                 in_flight: AtomicU32::new(0),
@@ -1849,9 +1907,11 @@ mod gicr {
                 ppi_pending_latch: AtomicU32::new(0),
                 mpidr: mpidr.into(),
                 last,
+                distributor_state: distributor_state,
                 mutable: Mutex::new(SharedMutState {
                     active: 0,
-                    group: 0,
+                    group_status: 0,
+                    group_modifier: 0,
                     enable: 0,
                     ppi_cfg: 0,
                     priority: [0; 8],
@@ -1877,7 +1937,7 @@ mod gicr {
                 return false;
             }
             let state = self.shared.mutable.lock();
-            (pending & !state.active & state.enable & state.group) != 0
+            (pending & !state.active & state.enable & state.group_status & !state.group_modifier) != 0
         }
 
         pub fn is_pending_or_active(&self, intid: u32) -> bool {
